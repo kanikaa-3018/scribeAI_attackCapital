@@ -1,0 +1,1183 @@
+"use client";
+
+import React, { useEffect, useRef, useReducer, useState } from "react";
+import { io, Socket } from "socket.io-client";
+import ToastContainer, { emitToast } from './Toast';
+
+enum SessionStatus {
+  IDLE = 'IDLE',
+  RECORDING = "RECORDING",
+  PAUSED = "PAUSED",
+  PROCESSING = "PROCESSING",
+  COMPLETED = "COMPLETED",
+  ERROR = "ERROR"
+}
+
+type State = { status: SessionStatus };
+type Action = { type: 'START' } | { type: 'PAUSE' } | { type: 'RESUME' } | { type: 'PROCESS' } | { type: 'COMPLETE' } | { type: 'ERROR' } | { type: 'IDLE' };
+
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case 'START': return { status: SessionStatus.RECORDING };
+    case 'PAUSE': return { status: SessionStatus.PAUSED };
+    case 'RESUME': return { status: SessionStatus.RECORDING };
+    case 'PROCESS': return { status: SessionStatus.PROCESSING };
+    case 'COMPLETE': return { status: SessionStatus.COMPLETED };
+    case 'ERROR': return { status: SessionStatus.ERROR };
+    case 'IDLE': default: return { status: SessionStatus.IDLE };
+  }
+}
+
+export default function RecordingPanel() {
+  const [state, dispatch] = useReducer(reducer, { status: SessionStatus.IDLE });
+  const status = state.status;
+  const [finalTranscript, setFinalTranscript] = useState<string>("");
+  const [interimTranscript, setInterimTranscript] = useState<string>("");
+  const socketRef = useRef<Socket | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const currentStreamRef = useRef<MediaStream | null>(null);
+  const blobZeroCountRef = useRef<number>(0);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const sequenceRef = useRef<number>(0);
+  const sessionIdRef = useRef<string | null>(null);
+  const recognitionRef = useRef<any | null>(null);
+  const [hasSpeechRecognition, setHasSpeechRecognition] = useState<boolean>(false);
+  const [inputType, setInputType] = useState<'mic' | 'tab'>('mic');
+  const inputTypeRef = useRef<'mic' | 'tab'>(inputType);
+  const [user, setUser] = useState<{ name?: string; email?: string } | null>(null);
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [summary, setSummary] = useState<string>('');
+  const [sessionTitle, setSessionTitle] = useState<string>('');
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
+  const [isSummaryOpen, setIsSummaryOpen] = useState<boolean>(false);
+  const [format, setFormat] = useState<'plain'|'md'|'srt'>('plain');
+  const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
+  const [previewContent, setPreviewContent] = useState<string>('');
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [audioLevel, setAudioLevel] = useState<number>(0);
+  const [lastBlobSize, setLastBlobSize] = useState<number>(0);
+
+  // Return a combined transcript while avoiding simple duplication
+  function getCombinedTranscript() {
+    const base = (finalTranscript || '').trim();
+    const inter = (interimTranscript || '').trim();
+    if (!base) return inter || '';
+    if (!inter) return base;
+    if (base.endsWith(inter)) return base;
+    // find overlap between end of base and start of inter
+    const maxOverlap = Math.min(base.length, inter.length);
+    let overlap = 0;
+    for (let i = maxOverlap; i > 0; i--) {
+      if (base.slice(-i) === inter.slice(0, i)) { overlap = i; break; }
+    }
+    return base + (overlap ? '' : '\n') + inter.slice(overlap);
+  }
+
+  // Append a server-provided final chunk while avoiding duplicates/overlap
+  function appendUniqueFinal(newText: string) {
+    const t = (newText || '').trim();
+    if (!t) return;
+    setFinalTranscript((prev) => {
+      const prevTrim = (prev || '').trim();
+      if (!prevTrim) return t;
+      if (prevTrim.endsWith(t)) return prevTrim;
+      const maxOverlap = Math.min(prevTrim.length, t.length);
+      let overlap = 0;
+      for (let i = maxOverlap; i > 0; i--) {
+        if (prevTrim.slice(-i) === t.slice(0, i)) { overlap = i; break; }
+      }
+      return prevTrim + (overlap ? '' : '\n') + t.slice(overlap);
+    });
+  }
+  
+
+  function secondsToSrt(ts: number) {
+    const hours = Math.floor(ts / 3600);
+    const minutes = Math.floor((ts % 3600) / 60);
+    const seconds = Math.floor(ts % 60);
+    const millis = Math.floor((ts - Math.floor(ts)) * 1000);
+    const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+    return `${pad(hours)}:${pad(minutes)}:${pad(seconds)},${String(millis).padStart(3,'0')}`;
+  }
+
+  function toSrt(text: string) {
+    if (!text) return '';
+    const words = text.split(/\s+/).filter(Boolean);
+    const chunkSize = 12; // words per subtitle
+    const duration = 4; // seconds per chunk
+    const chunks: string[] = [];
+    for (let i = 0; i < words.length; i += chunkSize) {
+      const part = words.slice(i, i + chunkSize).join(' ');
+      const idx = Math.floor(i / chunkSize) + 1;
+      const start = (idx - 1) * duration;
+      const end = start + duration;
+      const entry = `${idx}\n${secondsToSrt(start)} --> ${secondsToSrt(end)}\n${part}`;
+      chunks.push(entry);
+    }
+    return chunks.join('\n\n');
+  }
+
+  function toMarkdown(text: string) {
+    if (!text) return '';
+    // Simple markdown: header + paragraph breaks from double newlines
+    const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+    const body = paras.map(p => p.replace(/\n/g, '  \n')).join('\n\n');
+    return `# Transcript\n\n${body}`;
+  }
+
+  function formatTranscript(fmt: 'plain'|'md'|'srt', text: string) {
+    if (!text) return '';
+    if (fmt === 'md') return toMarkdown(text);
+    if (fmt === 'srt') return toSrt(text);
+    return text;
+  }
+
+  useEffect(() => {
+    const socket = io(typeof window !== 'undefined' ? (window.location.hostname === 'localhost' ? 'http://localhost:4000' : `${window.location.protocol}//${window.location.hostname}:4000`) : 'http://localhost:4000');
+    socketRef.current = socket;
+    socket.on("connect", () => {
+      console.log('Socket connected (client) id=', socket.id);
+    });
+    socket.on("transcriptUpdate", (payload: { text: string }) => {
+      const text = payload && payload.text ? String(payload.text) : '';
+      console.log('transcriptUpdate received (len):', text.length, 'preview:', text.slice(0,120));
+      // If client-side SpeechRecognition is running, prefer that and ignore server live updates
+      if (recognitionRef.current) {
+        console.log('Skipping server transcriptUpdate because client SpeechRecognition is active');
+        return;
+      }
+      appendUniqueFinal(text);
+    });
+    // Welcome message disabled - no need for placeholder
+    socket.on('welcome', (payload: { message?: string }) => {
+      // Silently acknowledge - no UI clutter
+    });
+    socket.on("statusChange", (payload: { status: string }) => {
+      console.log('statusChange', payload);
+      const s = String(payload && payload.status || '').toUpperCase();
+      if (s === 'RECORDING') dispatch({ type: 'START' });
+      else if (s === 'PAUSED') dispatch({ type: 'PAUSE' });
+      else if (s === 'PROCESSING') dispatch({ type: 'PROCESS' });
+      else if (s === 'COMPLETED') dispatch({ type: 'COMPLETE' });
+      else if (s === 'ERROR') dispatch({ type: 'ERROR' });
+      else dispatch({ type: 'IDLE' });
+    });
+    socket.on('sessionSaved', (payload: { session: any, transcript?: string, summary?: string, downloadUrl?: string }) => {
+      console.log('sessionSaved event received:', payload && (payload.session ? payload.session.id : '(no session)'));
+      const s = payload && payload.session;
+      if (s) {
+        // prefer server transcript if provided, and clear interim
+        if (payload.transcript) setFinalTranscript(payload.transcript);
+        else setFinalTranscript(s.transcript || '');
+        setInterimTranscript('');
+        // store summary for UI and show a gentle indicator/button
+        const sum = payload.summary || s.summary || '';
+        if (sum && String(sum).trim()) {
+          setSummary(String(sum));
+        }
+        if (payload.downloadUrl || s.downloadUrl) {
+          setDownloadUrl(String(payload.downloadUrl || s.downloadUrl));
+        }
+        try { emitToast('Session saved', 'success'); } catch (e) {}
+      } else {
+        // no session body; clear summary
+        setSummary('');
+      }
+    });
+
+    socket.on('disconnect', (reason: any) => {
+      console.log('Socket disconnected, reason=', reason);
+    });
+
+    socket.on('processing', () => {
+      dispatch({ type: 'PROCESS' });
+    });
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      setHasSpeechRecognition(true);
+    } else {
+      setHasSpeechRecognition(false);
+    }
+
+    // load lightweight user from localStorage
+    try {
+      const raw = localStorage.getItem('scribeai_user');
+      if (raw) setUser(JSON.parse(raw));
+    } catch (e) {
+      setUser(null);
+    }
+
+    // enumerate audio input devices
+    (async () => {
+      try {
+        if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+          const list = await navigator.mediaDevices.enumerateDevices();
+          const inputs = list.filter(d => d.kind === 'audioinput');
+          setAudioDevices(inputs);
+          // prefer a loopback-like device if present
+          const preferred = inputs.find(d => /stereo mix|vb-audio|cable|loopback/i.test(d.label || ''));
+          if (preferred) setSelectedDeviceId(preferred.deviceId);
+        }
+      } catch (e) {
+        console.warn('Could not enumerate devices', e);
+      }
+    })();
+  }, []);
+
+  // Helper: explicit user-gesture test to request tab/share and expose stream for debugging
+  async function testGetDisplayMedia() {
+    if (!(navigator.mediaDevices as any).getDisplayMedia) {
+      try { emitToast('getDisplayMedia not supported in this browser', 'error'); } catch (e) {}
+      console.warn('getDisplayMedia not available');
+      return;
+    }
+    try {
+      try { emitToast('Requesting tab/share permission…', 'info'); } catch (e) {}
+      const s = await (navigator.mediaDevices as any).getDisplayMedia({ audio: true, video: true });
+      // prefer audio-only stream for downstream use
+      const audioOnly = new MediaStream((s.getAudioTracks && s.getAudioTracks()) ? s.getAudioTracks() : []);
+      try { (window as any).__lastStream = audioOnly; } catch (e) {}
+      console.log('testGetDisplayMedia: got stream', s, 'audioTracks:', s.getAudioTracks(), 'audioOnlyTracks:', audioOnly.getAudioTracks());
+      try { emitToast(`Tab/share granted — audioTracks=${s.getAudioTracks().length}`, 'success'); } catch (e) {}
+      // stop tracks immediately — this was only for testing the permission/prompt
+      try { (s.getTracks() || []).forEach((t: MediaStreamTrack) => t.stop()); } catch (e) {}
+    } catch (err: any) {
+      console.error('testGetDisplayMedia failed', err);
+      try { emitToast(`Tab/share failed: ${err && err.message ? err.message : String(err)}`, 'error'); } catch (e) {}
+    }
+  }
+
+  // keep ref in sync when user toggles input type in the UI
+  useEffect(() => {
+    inputTypeRef.current = inputType;
+  }, [inputType]);
+
+  // Try to (re)acquire a media stream with retry/backoff for interruptions
+  async function acquireStream(inputType: "mic" | "tab" = "mic", attempts = 3) {
+    try {
+      // For tab sharing try getDisplayMedia first. Some browsers require video:true
+      if (inputType === 'tab' && (navigator.mediaDevices as any).getDisplayMedia) {
+        try {
+          console.log('Attempting getDisplayMedia for tab/share (audio:true video:true)');
+          try { emitToast('Requesting tab/share permission…', 'info'); } catch (e) {}
+          // record attempt so dev can inspect from console
+          try { (window as any).__lastGetDisplayMediaAttempt = Date.now(); } catch (e) {}
+          // Some browsers only return audio when video:true is requested. Try video:true first.
+          const s = await (navigator.mediaDevices as any).getDisplayMedia({ audio: true, video: true });
+          // prefer an audio-only stream downstream
+          const audioOnly = new MediaStream((s.getAudioTracks && s.getAudioTracks()) ? s.getAudioTracks() : []);
+          if (audioOnly && audioOnly.getAudioTracks && audioOnly.getAudioTracks().length > 0) {
+            try { (window as any).__lastStream = audioOnly; } catch (e) {}
+            console.log('getDisplayMedia returned audio-only stream (from display) audioTracks:', audioOnly.getAudioTracks());
+            return audioOnly;
+          }
+          // if we got a stream but no audio tracks, stop and fallback
+          try { (s.getTracks() || []).forEach((t: MediaStreamTrack) => t.stop()); } catch (e) {}
+          throw new Error('getDisplayMedia returned no audio');
+        } catch (err) {
+          console.warn('Tab-share getDisplayMedia failed or provided no audio:', err && (err as any).message ? (err as any).message : err);
+          try { emitToast("No tab audio detected — make sure you check 'Share audio' in the picker. Falling back to microphone.", 'info'); } catch (e) {}
+          // Fallback to microphone so the user can still record; user can re-try Test Tab Share
+          return await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
+      }
+      // Default to microphone
+      // If the user has selected a specific device, prefer it
+      try {
+        if (selectedDeviceId) {
+          return await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: selectedDeviceId } } as any });
+        }
+      } catch (e) {
+        console.warn('Failed to get selected audio device, falling back to default microphone', e);
+      }
+      return await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      if (attempts > 0) {
+        await new Promise(r => setTimeout(r, 600));
+        return acquireStream(inputType, attempts - 1);
+      }
+      throw err;
+    }
+  }
+
+  async function startRecording(inputType: "mic" | "tab" = "mic") {
+    try {
+      // remember requested input type for reconnect attempts
+      inputTypeRef.current = inputType;
+      const stream = await acquireStream(inputType, 2);
+      currentStreamRef.current = stream;
+      // Ensure we record from audio-only tracks to avoid MediaRecorder issues with mixed video streams
+      let audioStream = stream;
+      try {
+        const audioTracks = (stream && stream.getAudioTracks) ? stream.getAudioTracks() : [];
+        if (audioTracks && audioTracks.length > 0) audioStream = new MediaStream(audioTracks);
+      } catch (e) {
+        console.warn('Could not create audio-only stream, using full stream', e);
+      }
+      // Try explicit audio mime types for better browser compatibility
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' } as any);
+      } catch (e) {
+        try {
+          recorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm' } as any);
+        } catch (e2) {
+          recorder = new MediaRecorder(audioStream as MediaStream);
+        }
+      }
+      mediaRecorderRef.current = recorder;
+      const sessionId = `session-${Date.now()}`;
+      sessionIdRef.current = sessionId;
+      sequenceRef.current = 0;
+      socketRef.current?.emit('startSession', sessionId);
+      dispatch({ type: 'START' });
+
+      // data handler for recorder (declared before reconnect logic so it can be reused)
+      const recorderOnDataAvailable = async (e: BlobEvent) => {
+        try {
+          const size = e.data ? e.data.size || 0 : 0;
+          setLastBlobSize(size);
+          if (size === 0) {
+            blobZeroCountRef.current = (blobZeroCountRef.current || 0) + 1;
+          } else {
+            blobZeroCountRef.current = 0;
+          }
+          // If several consecutive zero-size blobs observed for tab, attempt AudioContext fallback
+          if (inputType === 'tab' && blobZeroCountRef.current >= 2) {
+            try { emitToast('Tab audio chunks empty — attempting alternate capture method', 'info'); } catch (e) {}
+            try {
+              await fallbackToAudioContextRecording(currentStreamRef.current);
+              blobZeroCountRef.current = 0;
+              return; // the fallback recorder will start and handle future chunks
+            } catch (err) {
+              console.warn('AudioContext fallback failed', err);
+            }
+          }
+          const arrayBuffer = await e.data.arrayBuffer();
+          const sessionId = sessionIdRef.current || `session-${Date.now()}`;
+          sequenceRef.current += 1;
+          socketRef.current?.emit("audioChunk", sessionId, arrayBuffer, sequenceRef.current);
+        } catch (err) {
+          console.error('ondataavailable handler error', err);
+        }
+      };
+
+      // Listen for stream interruptions and attempt reconnect using the remembered inputType
+      const onTrackEnded = async (ev: any) => {
+        console.warn('Media track ended. Attempting reconnect...');
+        try {
+          const desired = inputTypeRef.current || inputType;
+          const s = await acquireStream(desired, 3);
+          try { mediaRecorderRef.current?.stop(); } catch (e) {}
+          const audioTracks = (s && s.getAudioTracks) ? s.getAudioTracks() : [];
+          const newStream = audioTracks && audioTracks.length > 0 ? new MediaStream(audioTracks) : s;
+          const newRecorder = new MediaRecorder(newStream as MediaStream);
+          mediaRecorderRef.current = newRecorder;
+          sequenceRef.current = 0;
+          socketRef.current?.emit('startSession', sessionIdRef.current || `session-${Date.now()}`);
+          newRecorder.ondataavailable = recorderOnDataAvailable;
+          const newTimeslice = inputTypeRef.current === 'tab' ? 3000 : 30000;
+          newRecorder.start(newTimeslice);
+          console.log('Reconnected media stream and resumed recording (inputType=', desired, ')');
+        } catch (e) {
+          console.error('Reconnect failed', e);
+          dispatch({ type: 'ERROR' });
+        }
+      };
+      try {
+        (stream.getTracks() || []).forEach((t: MediaStreamTrack) => t.addEventListener('ended', onTrackEnded));
+      } catch (e) {
+        console.warn('Failed to attach track ended listeners', e);
+      }
+
+      // Start client-side speech recognition only for microphone input
+      try {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (inputType === 'mic' && SpeechRecognition) {
+          const recog = new SpeechRecognition();
+          recog.lang = 'en-US';
+          recog.interimResults = true;
+          recog.continuous = true;
+          recog.onresult = (ev: any) => {
+            let interim = '';
+            let final = '';
+            for (let i = ev.resultIndex; i < ev.results.length; ++i) {
+              const r = ev.results[i];
+              if (r.isFinal) final += r[0].transcript;
+              else interim += r[0].transcript;
+            }
+            if (final && final.trim()) {
+              setFinalTranscript((prev) => (prev ? prev + "\n" : "") + final.trim());
+              setInterimTranscript('');
+            } else {
+              setInterimTranscript(interim.trim());
+            }
+          };
+          recog.onerror = (e: any) => console.warn('SpeechRecognition error', e);
+          recog.onend = () => {
+            // don't auto-restart here; we'll stop on stopRecording
+          };
+          recognitionRef.current = recog;
+          recog.start();
+        }
+      } catch (e) {
+        console.warn('SpeechRecognition start failed', e);
+      }
+
+      const timeslice = inputType === 'tab' ? 3000 : 30000;
+      recorder.ondataavailable = recorderOnDataAvailable;
+      recorder.start(timeslice);
+
+      // Setup analyser node to provide a visual/audio-level diagnostic for tab-share
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          let ctx = audioCtxRef.current;
+          if (!ctx) {
+            ctx = new AudioCtx();
+            audioCtxRef.current = ctx;
+          }
+          const src = ctx.createMediaStreamSource(audioStream);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 2048;
+          src.connect(analyser);
+          const data = new Uint8Array(analyser.frequencyBinCount);
+          let raf = 0;
+          const tick = () => {
+            try {
+              analyser.getByteTimeDomainData(data);
+              // compute RMS
+              let sum = 0;
+              for (let i = 0; i < data.length; i++) {
+                const v = (data[i] - 128) / 128;
+                sum += v * v;
+              }
+              const rms = Math.sqrt(sum / data.length);
+              setAudioLevel(Math.min(1, rms));
+            } catch (e) {}
+            raf = requestAnimationFrame(tick);
+          };
+          tick();
+        }
+      } catch (e) {
+        console.warn('Analyser setup failed', e);
+      }
+      dispatch({ type: 'START' });
+    } catch (err) {
+      console.error('startRecording error', err);
+      dispatch({ type: 'ERROR' });
+    }
+  }
+
+  async function fallbackToAudioContextRecording(stream: MediaStream | null) {
+    if (!stream) throw new Error('no stream for fallback');
+    try {
+      // create or reuse audio context
+      let ctx = audioCtxRef.current;
+      if (!ctx) {
+        ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        audioCtxRef.current = ctx;
+      }
+      const src = ctx.createMediaStreamSource(stream);
+      const dest = ctx.createMediaStreamDestination();
+      src.connect(dest);
+
+      // stop existing recorder if any
+      try { mediaRecorderRef.current?.stop(); } catch (e) {}
+
+      const fallbackRecorder = new MediaRecorder(dest.stream as MediaStream);
+      mediaRecorderRef.current = fallbackRecorder;
+      fallbackRecorder.ondataavailable = async (e: BlobEvent) => {
+        try {
+          const size = e.data ? e.data.size || 0 : 0;
+          if (size === 0) return;
+          const buffer = await e.data.arrayBuffer();
+          const sessionId = sessionIdRef.current || `session-${Date.now()}`;
+          sequenceRef.current += 1;
+          socketRef.current?.emit('audioChunk', sessionId, buffer, sequenceRef.current);
+        } catch (err) { console.error('fallback ondataavailable', err); }
+      };
+      fallbackRecorder.onerror = (ev) => console.warn('fallback recorder error', ev);
+      fallbackRecorder.start(3000);
+      try { emitToast('Using audio-context fallback for tab capture', 'info'); } catch (e) {}
+    } catch (e) {
+      console.error('fallbackToAudioContextRecording failed', e);
+      throw e;
+    }
+  }
+
+  function pauseRecording() {
+    try { mediaRecorderRef.current?.pause(); } catch (e) {}
+    dispatch({ type: 'PAUSE' });
+  }
+
+  function resumeRecording() {
+    try { mediaRecorderRef.current?.resume(); } catch (e) {}
+    dispatch({ type: 'RESUME' });
+  }
+
+  function stopRecording() {
+    try { mediaRecorderRef.current?.stop(); } catch (e) {}
+    dispatch({ type: 'COMPLETE' });
+    // notify server to stop session — server will transcribe and save, then emit `sessionSaved`
+    const sid = sessionIdRef.current || `session-${Date.now()}`;
+    // Include the current client-side transcript (if any) so server can use it
+    const combined = getCombinedTranscript();
+    // attach owner email if available (lightweight client-side login stored in localStorage)
+    let ownerEmail = '';
+    try {
+      const raw = localStorage.getItem('scribeai_user');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        ownerEmail = parsed && parsed.email ? parsed.email : '';
+      }
+    } catch (e) {
+      ownerEmail = '';
+    }
+    socketRef.current?.emit('stopSession', sid, combined || '', ownerEmail);
+
+    // POST a preliminary session so it's visible sooner in the sessions API.
+    (async () => {
+      try {
+        setIsSaving(true); setSaveError(null);
+        const payload = {
+          clientSessionId: sid,
+          transcript: combined || '',
+          title: '',
+          summary: null,
+          startedAt: new Date().toISOString(),
+          endedAt: new Date().toISOString(),
+          ownerEmail: ownerEmail || undefined,
+          status: 'PROCESSING'
+        } as any;
+        const apiBase = '';
+        const res = await fetch(`${apiBase}/api/sessions`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          setSaveError(data && data.error ? String(data.error) : `Save failed (${res.status})`);
+        } else {
+          // If server returns a session with a summary/title, apply it locally
+          const sess = data && data.session ? data.session : null;
+          if (sess && sess.summary) setSummary(String(sess.summary));
+          if (sess && sess.title) setSessionTitle(String(sess.title));
+          if (sess && sess.transcript) setFinalTranscript(String(sess.transcript));
+          try { emitToast('Session queued for processing', 'info'); } catch (e) {}
+        }
+      } catch (e: any) {
+        setSaveError(e && e.message ? e.message : String(e));
+      } finally {
+        setIsSaving(false);
+      }
+    })();
+
+    // stop client-side speech recognition if running
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+    } catch (e) {
+      console.warn('Error stopping SpeechRecognition', e);
+    }
+
+    // Tear down analyser / audio context
+    try {
+      if (audioCtxRef.current) {
+        try { audioCtxRef.current.close(); } catch (e) {}
+        audioCtxRef.current = null;
+      }
+    } catch (e) { console.warn('Error closing audio context', e); }
+    setAudioLevel(0);
+    setLastBlobSize(0);
+  }
+
+  return (
+    <div className="animate-fadeIn" style={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      gap: 24, 
+      maxWidth: 1400,
+      margin: '0 auto',
+      padding: '0 20px'
+    }}>
+      {/* Audio Source Selection */}
+      <div className="neubrutal-card" style={{ 
+        padding: 28, 
+        background: 'linear-gradient(135deg, #ffffff 0%, #f9fff9 100%)',
+        border: '5px solid var(--nb-border)',
+        boxShadow: '6px 6px 0 rgba(11,61,43,0.9)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <span style={{ fontSize: 24 }}>🎙️</span>
+          <label style={{ fontWeight: 900, fontSize: '1.1rem', color: 'var(--nb-ink)' }}>Audio Source</label>
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {/* Source Type Selector */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {(['mic', 'tab'] as const).map((type) => (
+              <button
+                key={type}
+                onClick={() => setInputType(type)}
+                className="neubrutal-btn"
+                style={{
+                  padding: '12px 20px',
+                  background: inputType === type ? 'linear-gradient(135deg, var(--nb-accent) 0%, #37a169 100%)' : 'white',
+                  color: inputType === type ? 'white' : 'var(--nb-ink)',
+                  border: `5px solid ${inputType === type ? 'var(--nb-border)' : 'rgba(11,61,43,0.2)'}`,
+                  fontWeight: 900,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}
+              >
+                <span style={{ fontSize: 18 }}>{type === 'mic' ? '🎤' : '🖥️'}</span>
+                <span>{type === 'mic' ? 'Microphone' : 'Tab / Screen'}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Device Selector for Mic */}
+          {inputType === 'mic' && audioDevices.length > 0 && (
+            <select 
+              value={selectedDeviceId || ''} 
+              onChange={(e) => setSelectedDeviceId(e.target.value || null)}
+              className="neubrutal-btn"
+              style={{
+                padding: '12px 16px',
+                minWidth: 220,
+                maxWidth: 400,
+                background: 'white',
+                border: '5px solid rgba(11,61,43,0.2)',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              <option value="">🎙️ Default Microphone</option>
+              {audioDevices.map(d => (
+                <option key={d.deviceId} value={d.deviceId}>
+                  🎧 {d.label || `Device ${d.deviceId.slice(0, 8)}...`}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Tab Share Test Button */}
+          {inputType === 'tab' && (
+            <button 
+              className="neubrutal-btn btn-ghost" 
+              onClick={() => testGetDisplayMedia()}
+              style={{ padding: '12px 20px', fontWeight: 800 }}
+            >
+              🧪 Test Tab Share
+            </button>
+          )}
+        </div>
+
+        {/* Tab Warning */}
+        {inputType === 'tab' && (
+          <div style={{ 
+            marginTop: 16, 
+            padding: 16, 
+            background: 'linear-gradient(135deg, #e3f2fd 0%, #f0f9ff 100%)', 
+            border: '4px solid #2196f3',
+            borderRadius: 12,
+            display: 'flex',
+            gap: 14,
+            alignItems: 'flex-start'
+          }}>
+            <span style={{ fontSize: 28, marginTop: 2 }}>ℹ️</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 900, color: '#0d47a1', marginBottom: 8, fontSize: '1.05rem' }}>📹 Tab Recording Mode</div>
+              <div style={{ fontSize: 14, color: '#1565c0', lineHeight: 1.6, marginBottom: 10 }}>
+                <strong>✅ Audio is being recorded</strong> from your selected tab. Audio chunks are being saved and will be available for download after stopping.
+              </div>
+              
+              <div style={{ 
+                marginTop: 12, 
+                padding: 12, 
+                background: 'rgba(33, 150, 243, 0.08)', 
+                borderRadius: 8,
+                border: '2px solid rgba(33, 150, 243, 0.2)'
+              }}>
+                <div style={{ fontWeight: 900, color: '#0d47a1', marginBottom: 8, fontSize: 14 }}>
+                  💡 Want to transcribe ALL system audio?
+                </div>
+                <div style={{ fontSize: 13, color: '#1565c0', lineHeight: 1.6 }}>
+                  <strong>Windows:</strong>
+                  <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
+                    <li>Enable "Stereo Mix" in Sound Settings → Recording tab</li>
+                    <li>Or install <strong>VB-Audio Virtual Cable</strong> (free)</li>
+                    <li>Select it as the microphone in the dropdown above</li>
+                  </ol>
+                  <strong>Mac:</strong>
+                  <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
+                    <li>Install <strong>BlackHole</strong> (free audio loopback)</li>
+                    <li>Create Multi-Output Device in Audio MIDI Setup</li>
+                    <li>Select BlackHole as microphone in dropdown above</li>
+                  </ol>
+                  This will capture all device audio with <strong>live transcription!</strong> ✨
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab Audio Level Indicator */}
+        {inputType === 'tab' && status === 'RECORDING' && (
+          <div style={{ 
+            marginTop: 16, 
+            padding: 16, 
+            background: 'rgba(79,176,122,0.05)', 
+            borderRadius: 12,
+            border: '3px solid rgba(79,176,122,0.2)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontWeight: 800, fontSize: 13 }}>🔊 Audio Level</span>
+              <span style={{ fontSize: 12, color: 'rgba(11,47,33,0.7)' }}>Last chunk: {lastBlobSize} bytes</span>
+            </div>
+            <div style={{ 
+              width: '100%', 
+              height: 12, 
+              background: 'rgba(11,61,43,0.1)', 
+              borderRadius: 8, 
+              overflow: 'hidden',
+              border: '2px solid rgba(11,61,43,0.2)'
+            }}>
+              <div 
+                className="animate-pulse"
+                style={{ 
+                  width: `${Math.round(audioLevel * 100)}%`, 
+                  height: '100%', 
+                  background: 'linear-gradient(90deg, #4fb07a 0%, #37a169 100%)',
+                  transition: 'width 0.1s ease'
+                }} 
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Recording Controls */}
+      <div className="neubrutal-card" style={{ 
+        padding: 28, 
+        background: 'white',
+        border: '5px solid var(--nb-border)',
+        boxShadow: '6px 6px 0 rgba(11,61,43,0.9)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          {/* Status Indicator */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div 
+              className={status === 'RECORDING' ? 'status-live' : ''}
+              style={{
+                padding: '10px 20px',
+                background: status === 'RECORDING' ? 'linear-gradient(135deg, #4fb07a 0%, #37a169 100%)' : 
+                           status === 'PROCESSING' ? 'linear-gradient(135deg, #4299e1 0%, #3182ce 100%)' :
+                           status === 'COMPLETED' ? 'linear-gradient(135deg, #48bb78 0%, #38a169 100%)' :
+                           'linear-gradient(135deg, #e2e8f0 0%, #cbd5e0 100%)',
+                color: status !== 'IDLE' ? 'white' : 'var(--nb-ink)',
+                borderRadius: 12,
+                border: '4px solid var(--nb-border)',
+                fontWeight: 900,
+                fontSize: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                boxShadow: '4px 4px 0 rgba(11,61,43,0.8)'
+              }}
+            >
+              <span style={{ 
+                width: 12, 
+                height: 12, 
+                borderRadius: '50%', 
+                background: status === 'RECORDING' ? 'white' : 
+                           status === 'PROCESSING' ? 'white' :
+                           status === 'COMPLETED' ? 'white' : 'var(--nb-ink)',
+                animation: status === 'RECORDING' ? 'pulse 1.5s ease-in-out infinite' : 'none'
+              }} />
+              <span>
+                {status === 'RECORDING' ? '🔴 RECORDING' : 
+                 status === 'PAUSED' ? '⏸️ PAUSED' : 
+                 status === 'PROCESSING' ? '⚙️ PROCESSING' : 
+                 status === 'COMPLETED' ? '✅ COMPLETED' : 
+                 '⚪ IDLE'}
+              </span>
+            </div>
+            
+            {isSaving && (
+              <div style={{ 
+                padding: '8px 16px', 
+                background: 'rgba(79,176,122,0.1)', 
+                borderRadius: 8,
+                fontWeight: 700,
+                fontSize: 14,
+                color: 'var(--nb-accent)'
+              }}>
+                💾 Saving...
+              </div>
+            )}
+            {saveError && (
+              <div style={{ 
+                padding: '8px 16px', 
+                background: 'rgba(220,38,38,0.1)', 
+                borderRadius: 8,
+                fontWeight: 700,
+                fontSize: 14,
+                color: '#c92a2a'
+              }}>
+                ⚠️ {saveError}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Control Buttons */}
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <button 
+            onClick={() => startRecording(inputType)} 
+            className="neubrutal-btn"
+            disabled={status === 'RECORDING'}
+            style={{
+              padding: '16px 28px',
+              background: status === 'RECORDING' ? '#cbd5e0' : 'linear-gradient(135deg, #4fb07a 0%, #37a169 100%)',
+              color: 'white',
+              border: '5px solid var(--nb-border)',
+              fontWeight: 900,
+              fontSize: '1.1rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              cursor: status === 'RECORDING' ? 'not-allowed' : 'pointer',
+              opacity: status === 'RECORDING' ? 0.5 : 1
+            }}
+          >
+            <svg style={{ width: 24, height: 24 }} viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z"/>
+              <path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z"/>
+            </svg>
+            <span>Start Recording</span>
+          </button>
+
+          <button 
+            onClick={pauseRecording}
+            disabled={status !== 'RECORDING'}
+            className="neubrutal-btn"
+            style={{
+              padding: '16px 28px',
+              background: status === 'RECORDING' ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : '#cbd5e0',
+              color: 'white',
+              border: '5px solid var(--nb-border)',
+              fontWeight: 900,
+              fontSize: '1.1rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              cursor: status === 'RECORDING' ? 'pointer' : 'not-allowed',
+              opacity: status === 'RECORDING' ? 1 : 0.5
+            }}
+          >
+            <svg style={{ width: 24, height: 24 }} viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 5h4v14H6zM14 5h4v14h-4z"/>
+            </svg>
+            <span>Pause</span>
+          </button>
+
+          <button 
+            onClick={resumeRecording}
+            disabled={status !== 'PAUSED'}
+            className="neubrutal-btn"
+            style={{
+              padding: '16px 28px',
+              background: status === 'PAUSED' ? 'linear-gradient(135deg, #4fb07a 0%, #37a169 100%)' : '#cbd5e0',
+              color: 'white',
+              border: '5px solid var(--nb-border)',
+              fontWeight: 900,
+              fontSize: '1.1rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              cursor: status === 'PAUSED' ? 'pointer' : 'not-allowed',
+              opacity: status === 'PAUSED' ? 1 : 0.5
+            }}
+          >
+            <svg style={{ width: 24, height: 24 }} viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z"/>
+            </svg>
+            <span>Resume</span>
+          </button>
+
+          <button 
+            onClick={stopRecording}
+            disabled={status !== 'RECORDING' && status !== 'PAUSED'}
+            className="neubrutal-btn"
+            style={{
+              padding: '16px 28px',
+              background: (status === 'RECORDING' || status === 'PAUSED') ? 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)' : '#cbd5e0',
+              color: 'white',
+              border: '5px solid var(--nb-border)',
+              fontWeight: 900,
+              fontSize: '1.1rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              cursor: (status === 'RECORDING' || status === 'PAUSED') ? 'pointer' : 'not-allowed',
+              opacity: (status === 'RECORDING' || status === 'PAUSED') ? 1 : 0.5
+            }}
+          >
+            <svg style={{ width: 24, height: 24 }} viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2" ry="2"/>
+            </svg>
+            <span>Stop</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Transcript Panel */}
+      <div className="neubrutal-card" style={{
+        padding: 0,
+        background: 'white',
+        border: '5px solid var(--nb-border)',
+        boxShadow: '6px 6px 0 rgba(11,61,43,0.9)',
+        overflow: 'hidden'
+      }}>
+        {/* Transcript Header */}
+        <div style={{ 
+          padding: '24px 28px',
+          background: 'linear-gradient(135deg, rgba(79,176,122,0.1) 0%, rgba(79,176,122,0.05) 100%)',
+          borderBottom: '4px solid rgba(79,176,122,0.2)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 16
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <span style={{ fontSize: 28 }}>📝</span>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: '1.3rem', color: 'var(--nb-ink)' }}>
+                {sessionTitle || 'Live Transcript'}
+              </div>
+              <div style={{ fontSize: 13, color: 'rgba(11,47,33,0.6)', marginTop: 2 }}>
+                {getCombinedTranscript() ? `${getCombinedTranscript().length} characters` : 'Waiting for audio...'}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Format Selector */}
+            <select 
+              value={format} 
+              onChange={(e) => setFormat(e.target.value as any)}
+              className="neubrutal-btn"
+              style={{
+                padding: '10px 16px',
+                background: 'white',
+                border: '4px solid rgba(11,61,43,0.3)',
+                fontWeight: 800,
+                cursor: 'pointer'
+              }}
+            >
+              <option value="plain">📄 Plain Text</option>
+              <option value="md">📝 Markdown</option>
+              <option value="srt">🎬 SRT Subtitles</option>
+            </select>
+
+            {/* Action Buttons */}
+            <button 
+              className="neubrutal-btn btn-ghost icon-button" 
+              title="Copy transcript" 
+              onClick={() => {
+                const payload = getCombinedTranscript() || '';
+                navigator.clipboard?.writeText(payload);
+                try { emitToast('Copied to clipboard! 📋', 'success'); } catch (e) {}
+              }}
+              style={{ padding: 12 }}
+            >
+              <svg style={{ width: 20, height: 20 }} viewBox="0 0 24 24" fill="currentColor">
+                <path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1z"/>
+                <rect x="6" y="5" width="12" height="14" rx="2" ry="2"/>
+              </svg>
+            </button>
+
+            <button 
+              className="neubrutal-btn btn-ghost icon-button" 
+              title="Preview formatted" 
+              onClick={() => {
+                const payload = getCombinedTranscript() || '';
+                const formatted = formatTranscript(format, payload);
+                setPreviewContent(formatted);
+                setIsPreviewOpen(true);
+              }}
+              style={{ padding: 12 }}
+            >
+              <svg style={{ width: 20, height: 20 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="M21 21l-4.35-4.35"/>
+              </svg>
+            </button>
+
+            <button 
+              className="neubrutal-btn" 
+              title="Export transcript" 
+              onClick={() => {
+                const content = formatTranscript(format, getCombinedTranscript() || '');
+                const ext = format === 'md' ? 'md' : format === 'srt' ? 'srt' : 'txt';
+                const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const now = new Date().toISOString().replace(/[:.]/g,'-');
+                a.href = url;
+                a.download = `scribeai-transcript-${now}.${ext}`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                try { emitToast('Transcript exported! 📥', 'success'); } catch (e) {}
+              }}
+              style={{
+                padding: '10px 20px',
+                background: 'linear-gradient(135deg, var(--nb-accent) 0%, #37a169 100%)',
+                color: 'white',
+                fontWeight: 900
+              }}
+            >
+              ⬇️ Export
+            </button>
+          </div>
+        </div>
+
+        {/* Transcript Body */}
+        <div style={{ 
+          padding: 28,
+          minHeight: 300,
+          maxHeight: 500,
+          overflowY: 'auto',
+          background: 'rgba(79,176,122,0.02)'
+        }}>
+          {getCombinedTranscript() ? (
+            <div style={{ 
+              fontSize: '1.05rem',
+              lineHeight: 1.8,
+              color: 'var(--nb-ink)',
+              whiteSpace: 'pre-wrap',
+              fontFamily: 'Rubik, sans-serif'
+            }}>
+              {getCombinedTranscript()}
+            </div>
+          ) : (
+            <div style={{ 
+              textAlign: 'center',
+              padding: '60px 20px',
+              color: 'rgba(11,47,33,0.4)'
+            }}>
+              <div style={{ fontSize: 64, marginBottom: 16 }}>🎤</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: 8 }}>No transcript yet</div>
+              <div style={{ fontSize: 15 }}>
+                {inputType === 'mic' ? 'Click Start and begin speaking to see live captions' : 'Click Start to begin recording tab audio'}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Summary & Download Actions - Below Transcript */}
+        {(summary || downloadUrl) && (
+          <div style={{ 
+            padding: '24px 28px',
+            background: 'rgba(79,176,122,0.03)',
+            borderTop: '4px solid rgba(79,176,122,0.15)',
+            display: 'flex', 
+            gap: 12, 
+            flexWrap: 'wrap',
+            justifyContent: 'center'
+          }}>
+            {summary && (
+              <button 
+                onClick={() => setIsSummaryOpen(true)} 
+                className="neubrutal-btn"
+                style={{
+                  padding: '16px 32px',
+                  background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
+                  color: 'white',
+                  fontWeight: 900,
+                  fontSize: '1.05rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12
+                }}
+              >
+                <span style={{ fontSize: 22 }}>✨</span>
+                <span>View AI Summary</span>
+              </button>
+            )}
+            {downloadUrl && (
+              <a 
+                className="neubrutal-btn" 
+                href={downloadUrl} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{
+                  padding: '16px 32px',
+                  background: 'linear-gradient(135deg, #4fb07a 0%, #37a169 100%)',
+                  color: 'white',
+                  fontWeight: 900,
+                  fontSize: '1.05rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  textDecoration: 'none'
+                }}
+              >
+                <span style={{ fontSize: 22 }}>📥</span>
+                <span>Download Transcript</span>
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Toasts */}
+      <ToastContainer />
+
+      {/* Summary Modal */}
+      {isSummaryOpen && (
+        <div className="nb-modal-backdrop" onClick={() => setIsSummaryOpen(false)}>
+          <div className="nb-modal neubrutal-card" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontWeight: 900, fontSize: '1.2rem' }}>{sessionTitle || 'Session Summary'}</div>
+              <button className="neubrutal-btn" onClick={() => setIsSummaryOpen(false)}>Close</button>
+            </div>
+            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{summary}</pre>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Modal */}
+      {isPreviewOpen && (
+        <div className="nb-modal-backdrop" onClick={() => setIsPreviewOpen(false)}>
+          <div className="nb-modal neubrutal-card" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontWeight: 800 }}>Preview ({format})</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="neubrutal-btn btn-ghost" onClick={() => setIsPreviewOpen(false)}>Close</button>
+              </div>
+            </div>
+            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{previewContent}</pre>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
