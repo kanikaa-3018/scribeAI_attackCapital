@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
+import { SparkleIcon, WarningIcon, CheckIcon, HourglassIcon, TagIcon } from '../../components/Icons';
 
 type SessionItem = { id: string; title?: string; summary?: string; transcript?: string; startedAt?: string; ownerEmail?: string; keywords?: string[] };
 
@@ -84,7 +85,7 @@ export default function SummariesPage() {
           boxShadow: '8px 8px 0 rgba(11,61,43,0.9)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <span style={{ fontSize: 48 }}>✨</span>
+            <div style={{ color: 'var(--nb-accent)' }}><SparkleIcon size={56} /></div>
             <div className="transcript-title heading-live" style={{ margin: 0, fontSize: '2rem' }}>SUMMARIES</div>
           </div>
         </div>
@@ -98,16 +99,16 @@ export default function SummariesPage() {
         
         {error ? (
           <div className="neubrutal-card" style={{ padding: 24, background: 'rgba(255,0,0,0.05)', border: '6px solid rgba(200,50,50,0.6)' }}>
-            <div className="text-sm" style={{ color: '#c92a2a' }}>⚠️ Error: {error}</div>
+            <div className="text-sm" style={{ color: '#c92a2a' }}><WarningIcon size={16} color="#c92a2a" /> Error: {error}</div>
           </div>
         ) : null}
 
       <div style={{ display: 'flex', gap: 12, marginTop: 24, flexWrap: 'wrap', justifyContent: 'center' }}>
         {[
-          { label: 'Total Summaries', value: totals.totalSummaries, gradient: 'linear-gradient(180deg,#f0fff5,#e9f7ef)', icon: '✅' },
-          { label: 'Pending', value: totals.pending, gradient: 'linear-gradient(180deg,#fff8e6,#fff7ec)', icon: '⏳' },
-          { label: 'With Keywords', value: totals.withKeywords, gradient: 'linear-gradient(180deg,#eef7ff,#f3fbff)', icon: '🏷️' },
-          { label: 'Errors', value: totals.errors, gradient: 'linear-gradient(180deg,#fff5f5,#fff0f0)', icon: '⚠️' },
+          { label: 'Total Summaries', value: totals.totalSummaries, gradient: 'linear-gradient(180deg,#f0fff5,#e9f7ef)', icon: <CheckIcon size={28} /> },
+          { label: 'Pending', value: totals.pending, gradient: 'linear-gradient(180deg,#fff8e6,#fff7ec)', icon: <HourglassIcon size={28} /> },
+          { label: 'With Keywords', value: totals.withKeywords, gradient: 'linear-gradient(180deg,#eef7ff,#f3fbff)', icon: <TagIcon size={28} /> },
+          { label: 'Errors', value: totals.errors, gradient: 'linear-gradient(180deg,#fff5f5,#fff0f0)', icon: <WarningIcon size={28} color="#d04444" /> },
         ].map((stat, idx) => (
           <div 
             key={stat.label} 

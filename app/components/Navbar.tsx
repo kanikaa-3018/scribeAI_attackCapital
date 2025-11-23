@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import ScribeAILogo from './ScribeAILogo';
 
 export default function Navbar() {
   const [user, setUser] = useState<{ name?: string; email?: string } | null>(null);
@@ -58,13 +59,7 @@ export default function Navbar() {
     <div className="nb-navbar scribe-navbar" role="banner">
       <div className="nb-brand scribe-brand">
         <div className="scribe-logo" aria-hidden="true">
-          <div className="scribe-logo-inner" aria-hidden>
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-              <path d="M12 1v8a3 3 0 0 0 6 0V1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M19 11a7 7 0 0 1-14 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M12 19v4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </div>
+          <ScribeAILogo size={40} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="brand-name bangers-regular" style={{ letterSpacing: '1px' }}>{BRAND_TITLE}</div>

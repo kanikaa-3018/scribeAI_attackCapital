@@ -1,0 +1,26 @@
+{
+  "name": "ScribeAI",
+  "short_name": "ScribeAI",
+  "description": "AI-Powered Meeting Transcription & Summary Tool",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFE500",
+  "theme_color": "#FFE500",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/favicon.ico",
+      "sizes": "32x32",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

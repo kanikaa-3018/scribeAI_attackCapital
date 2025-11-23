@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useReducer, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import ToastContainer, { emitToast } from './Toast';
+import { MicrophoneIcon, GlobeIcon, PlayIcon, PauseIcon, StopIcon, SaveIcon, WarningIcon, CheckIcon, SparkleIcon, DownloadIcon, VolumeIcon, InfoIcon, DocumentIcon } from './Icons';
 
 enum SessionStatus {
   IDLE = 'IDLE',
@@ -620,7 +621,7 @@ export default function RecordingPanel() {
         boxShadow: '6px 6px 0 rgba(11,61,43,0.9)'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-          <span style={{ fontSize: 24 }}>🎙️</span>
+          <div style={{ color: 'var(--nb-accent)' }}><MicrophoneIcon size={24} /></div>
           <label style={{ fontWeight: 900, fontSize: '1.1rem', color: 'var(--nb-ink)' }}>Audio Source</label>
         </div>
 
@@ -643,7 +644,7 @@ export default function RecordingPanel() {
                   gap: 8
                 }}
               >
-                <span style={{ fontSize: 18 }}>{type === 'mic' ? '🎤' : '🖥️'}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>{type === 'mic' ? <MicrophoneIcon size={16} /> : <GlobeIcon size={16} />}</span>
                 <span>{type === 'mic' ? 'Microphone' : 'Tab / Screen'}</span>
               </button>
             ))}
@@ -665,10 +666,10 @@ export default function RecordingPanel() {
                 cursor: 'pointer'
               }}
             >
-              <option value="">🎙️ Default Microphone</option>
+              <option value="">Default Microphone</option>
               {audioDevices.map(d => (
                 <option key={d.deviceId} value={d.deviceId}>
-                  🎧 {d.label || `Device ${d.deviceId.slice(0, 8)}...`}
+                  {d.label || `Device ${d.deviceId.slice(0, 8)}...`}
                 </option>
               ))}
             </select>
@@ -681,7 +682,7 @@ export default function RecordingPanel() {
               onClick={() => testGetDisplayMedia()}
               style={{ padding: '12px 20px', fontWeight: 800 }}
             >
-              🧪 Test Tab Share
+              Test Tab Share
             </button>
           )}
         </div>
@@ -698,11 +699,11 @@ export default function RecordingPanel() {
             gap: 14,
             alignItems: 'flex-start'
           }}>
-            <span style={{ fontSize: 28, marginTop: 2 }}>ℹ️</span>
+            <div style={{ color: '#0d47a1' }}><InfoIcon size={24} /></div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 900, color: '#0d47a1', marginBottom: 8, fontSize: '1.05rem' }}>📹 Tab Recording Mode</div>
+              <div style={{ fontWeight: 900, color: '#0d47a1', marginBottom: 8, fontSize: '1.05rem' }}>Tab Recording Mode</div>
               <div style={{ fontSize: 14, color: '#1565c0', lineHeight: 1.6, marginBottom: 10 }}>
-                <strong>✅ Audio is being recorded</strong> from your selected tab. Audio chunks are being saved and will be available for download after stopping.
+                <strong><CheckIcon size={16} /> Audio is being recorded</strong> from your selected tab. Audio chunks are being saved and will be available for download after stopping.
               </div>
               
               <div style={{ 
@@ -728,7 +729,7 @@ export default function RecordingPanel() {
                     <li>Create Multi-Output Device in Audio MIDI Setup</li>
                     <li>Select BlackHole as microphone in dropdown above</li>
                   </ol>
-                  This will capture all device audio with <strong>live transcription!</strong> ✨
+                  This will capture all device audio with <strong>live transcription!</strong>
                 </div>
               </div>
             </div>
@@ -745,7 +746,7 @@ export default function RecordingPanel() {
             border: '3px solid rgba(79,176,122,0.2)'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontWeight: 800, fontSize: 13 }}>🔊 Audio Level</span>
+              <span style={{ fontWeight: 800, fontSize: 13 }}><VolumeIcon size={16} /> Audio Level</span>
               <span style={{ fontSize: 12, color: 'rgba(11,47,33,0.7)' }}>Last chunk: {lastBlobSize} bytes</span>
             </div>
             <div style={{ 
@@ -808,26 +809,26 @@ export default function RecordingPanel() {
                            status === 'COMPLETED' ? 'white' : 'var(--nb-ink)',
                 animation: status === 'RECORDING' ? 'pulse 1.5s ease-in-out infinite' : 'none'
               }} />
-              <span>
-                {status === 'RECORDING' ? '🔴 RECORDING' : 
-                 status === 'PAUSED' ? '⏸️ PAUSED' : 
-                 status === 'PROCESSING' ? '⚙️ PROCESSING' : 
-                 status === 'COMPLETED' ? '✅ COMPLETED' : 
-                 '⚪ IDLE'}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                {status === 'RECORDING' ? (<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><PlayIcon size={14} /> RECORDING</span>) : 
+                 status === 'PAUSED' ? (<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><PauseIcon size={14} /> PAUSED</span>) : 
+                 status === 'PROCESSING' ? (<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><SparkleIcon size={14} /> PROCESSING</span>) : 
+                 status === 'COMPLETED' ? (<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><CheckIcon size={14} /> COMPLETED</span>) : 
+                 (<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>IDLE</span>)}
               </span>
             </div>
             
             {isSaving && (
               <div style={{ 
-                padding: '8px 16px', 
-                background: 'rgba(79,176,122,0.1)', 
-                borderRadius: 8,
-                fontWeight: 700,
-                fontSize: 14,
-                color: 'var(--nb-accent)'
-              }}>
-                💾 Saving...
-              </div>
+                  padding: '8px 16px', 
+                  background: 'rgba(79,176,122,0.1)', 
+                  borderRadius: 8,
+                  fontWeight: 700,
+                  fontSize: 14,
+                  color: 'var(--nb-accent)'
+                }}>
+                  <SaveIcon size={16} /> Saving...
+                </div>
             )}
             {saveError && (
               <div style={{ 
@@ -836,9 +837,12 @@ export default function RecordingPanel() {
                 borderRadius: 8,
                 fontWeight: 700,
                 fontSize: 14,
-                color: '#c92a2a'
+                color: '#c92a2a',
+                display: 'inline-flex',
+                gap: 8,
+                alignItems: 'center'
               }}>
-                ⚠️ {saveError}
+                <WarningIcon size={16} color="#c92a2a" /> {saveError}
               </div>
             )}
           </div>
@@ -965,7 +969,7 @@ export default function RecordingPanel() {
           gap: 16
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <span style={{ fontSize: 28 }}>📝</span>
+            <div style={{ color: 'var(--nb-accent)' }}><DocumentIcon size={28} /></div>
             <div>
               <div style={{ fontWeight: 900, fontSize: '1.3rem', color: 'var(--nb-ink)' }}>
                 {sessionTitle || 'Live Transcript'}
@@ -990,19 +994,19 @@ export default function RecordingPanel() {
                 cursor: 'pointer'
               }}
             >
-              <option value="plain">📄 Plain Text</option>
-              <option value="md">📝 Markdown</option>
-              <option value="srt">🎬 SRT Subtitles</option>
+              <option value="plain">Plain Text</option>
+              <option value="md">Markdown</option>
+              <option value="srt">SRT Subtitles</option>
             </select>
 
             {/* Action Buttons */}
             <button 
               className="neubrutal-btn btn-ghost icon-button" 
               title="Copy transcript" 
-              onClick={() => {
+                onClick={() => {
                 const payload = getCombinedTranscript() || '';
                 navigator.clipboard?.writeText(payload);
-                try { emitToast('Copied to clipboard! 📋', 'success'); } catch (e) {}
+                try { emitToast('Copied to clipboard!', 'success'); } catch (e) {}
               }}
               style={{ padding: 12 }}
             >
@@ -1032,7 +1036,7 @@ export default function RecordingPanel() {
             <button 
               className="neubrutal-btn" 
               title="Export transcript" 
-              onClick={() => {
+                onClick={() => {
                 const content = formatTranscript(format, getCombinedTranscript() || '');
                 const ext = format === 'md' ? 'md' : format === 'srt' ? 'srt' : 'txt';
                 const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -1045,7 +1049,7 @@ export default function RecordingPanel() {
                 a.click();
                 a.remove();
                 URL.revokeObjectURL(url);
-                try { emitToast('Transcript exported! 📥', 'success'); } catch (e) {}
+                try { emitToast('Transcript exported!', 'success'); } catch (e) {}
               }}
               style={{
                 padding: '10px 20px',
@@ -1054,7 +1058,7 @@ export default function RecordingPanel() {
                 fontWeight: 900
               }}
             >
-              ⬇️ Export
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><DownloadIcon size={16} /> Export</span>
             </button>
           </div>
         </div>
@@ -1083,7 +1087,7 @@ export default function RecordingPanel() {
               padding: '60px 20px',
               color: 'rgba(11,47,33,0.4)'
             }}>
-              <div style={{ fontSize: 64, marginBottom: 16 }}>🎤</div>
+              <div style={{ fontSize: 64, marginBottom: 16 }}><MicrophoneIcon size={64} /></div>
               <div style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: 8 }}>No transcript yet</div>
               <div style={{ fontSize: 15 }}>
                 {inputType === 'mic' ? 'Click Start and begin speaking to see live captions' : 'Click Start to begin recording tab audio'}
@@ -1104,7 +1108,7 @@ export default function RecordingPanel() {
             justifyContent: 'center'
           }}>
             {summary && (
-              <button 
+                <button 
                 onClick={() => setIsSummaryOpen(true)} 
                 className="neubrutal-btn"
                 style={{
@@ -1118,7 +1122,7 @@ export default function RecordingPanel() {
                   gap: 12
                 }}
               >
-                <span style={{ fontSize: 22 }}>✨</span>
+                <SparkleIcon size={20} />
                 <span>View AI Summary</span>
               </button>
             )}
@@ -1140,7 +1144,7 @@ export default function RecordingPanel() {
                   textDecoration: 'none'
                 }}
               >
-                <span style={{ fontSize: 22 }}>📥</span>
+                <DownloadIcon size={20} />
                 <span>Download Transcript</span>
               </a>
             )}

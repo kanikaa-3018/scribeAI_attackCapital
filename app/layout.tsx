@@ -3,8 +3,17 @@ import React from "react";
 import Navbar from './components/Navbar';
 
 export const metadata = {
-  title: "ScribeAI",
-  description: "AttackCapital AI Scribing Assignment"
+  title: "ScribeAI - AI-Powered Transcription & Summary",
+  description: "Transform your conversations into intelligent transcripts with real-time speech recognition and AI-powered summaries",
+  icons: {
+    icon: [
+      { url: '/favicon.ico' },
+      { url: '/favicon.svg', type: 'image/svg+xml' }
+    ],
+    apple: '/apple-touch-icon.png'
+  },
+  manifest: '/manifest.json',
+  themeColor: '#FFE500'
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

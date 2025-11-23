@@ -11,7 +11,7 @@ export default function DashboardPage() {
             ScribeAI Dashboard
           </h1>
           <p className="muted" style={{ marginTop: 8, color: 'rgba(11,47,33,0.75)', fontWeight: 700, fontSize: '1.4rem', fontFamily: 'Poppins, sans-serif', lineHeight: 1.4 }}>
-            ⚡ Real-Time Transcription • 🎯 AI Summaries • 🎨 100% Free Forever
+           Real-Time Transcription • AI Summaries • 100% Free Forever
           </p>
         </header>
 

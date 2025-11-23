@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { MicrophoneIcon, SparkleIcon, RocketIcon, BoltIcon, RobotIcon, LockIcon, PaletteIcon, SearchIcon, ChartIcon, SaveIcon, DocumentWriteIcon, DownloadIcon, GlobeIcon,DocumentIcon } from './components/Icons';
 
 export default function HomePage() {
   return (
@@ -45,8 +46,8 @@ export default function HomePage() {
             }} />
             
             {/* Floating Icons */}
-            <div style={{ position: 'absolute', top: 30, right: 50, fontSize: 40, animation: 'bounce 3s ease-in-out infinite', opacity: 0.6 }}>🎙️</div>
-            <div style={{ position: 'absolute', bottom: 40, left: 60, fontSize: 36, animation: 'bounce 3s ease-in-out infinite 1s', opacity: 0.6 }}>✨</div>
+            <div style={{ position: 'absolute', top: 30, right: 50, animation: 'bounce 3s ease-in-out infinite', opacity: 0.6, color: 'var(--nb-accent)' }}><MicrophoneIcon size={48} /></div>
+            <div style={{ position: 'absolute', bottom: 40, left: 60, animation: 'bounce 3s ease-in-out infinite 1s', opacity: 0.6, color: 'var(--nb-accent)' }}><SparkleIcon size={42} /></div>
             
             {/* Main Content */}
             <div style={{ position: 'relative' }}>
@@ -60,9 +61,13 @@ export default function HomePage() {
                 fontWeight: 800,
                 fontSize: 14,
                 color: 'var(--nb-accent)',
-                letterSpacing: '1px'
+                letterSpacing: '1px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                justifyContent: 'center'
               }}>
-                🚀 NEXT-GEN TRANSCRIPTION
+                <RocketIcon size={18} /> NEXT-GEN TRANSCRIPTION
               </div>
               
               <h1 className="bangers-regular" style={{ 
@@ -121,7 +126,7 @@ export default function HomePage() {
                     transition: 'all 0.3s ease'
                   }}
                 >
-                  <span style={{ position: 'relative', zIndex: 1 }}>🎯 Start Recording Now</span>
+                  <span style={{ position: 'relative', zIndex: 1 }}><RocketIcon size={18} /> Start Recording Now</span>
                 </Link>
                 <Link 
                   href="/login" 
@@ -133,7 +138,7 @@ export default function HomePage() {
                     transition: 'all 0.3s ease'
                   }}
                 >
-                  📝 Login / Sign Up
+                  <span><DocumentWriteIcon size={16} /> Login / Sign Up</span>
                 </Link>
                 <Link 
                   href="/sessions" 
@@ -144,17 +149,17 @@ export default function HomePage() {
                     transition: 'all 0.3s ease'
                   }}
                 >
-                  📚 View Sessions
+                  <span><DocumentIcon size={16} /> View Sessions</span>
                 </Link>
               </div>
 
               {/* Feature Pills */}
               <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 32 }}>
                 {[
-                  { icon: '⚡', text: 'Real-Time Transcription' },
-                  { icon: '🤖', text: 'AI Summaries' },
-                  { icon: '🎯', text: '100% Free' },
-                  { icon: '🔒', text: 'Privacy First' }
+                  { Icon: BoltIcon, text: 'Real-Time Transcription' },
+                  { Icon: RobotIcon, text: 'AI Summaries' },
+                  { Icon: SaveIcon, text: '100% Free' },
+                  { Icon: LockIcon, text: 'Privacy First' }
                 ].map((pill, i) => (
                   <div 
                     key={i}
@@ -173,7 +178,7 @@ export default function HomePage() {
                       cursor: 'default'
                     }}
                   >
-                    <span style={{ fontSize: 18 }}>{pill.icon}</span>
+                    <pill.Icon size={20} color="var(--nb-accent)" />
                     <span>{pill.text}</span>
                   </div>
                 ))}
@@ -189,7 +194,7 @@ export default function HomePage() {
                 border: '4px solid rgba(79,176,122,0.35)',
                 boxShadow: '0 4px 12px rgba(79,176,122,0.15)'
               }}>
-                <span style={{ fontSize: 32 }}>✨</span>
+                <SparkleIcon size={36} color="var(--nb-accent)" />
                 <div style={{ textAlign: 'left' }}>
                   <div style={{ fontWeight: 900, color: 'var(--nb-accent)', fontSize: 16 }}>Free Forever</div>
                   <div style={{ fontWeight: 600, color: 'rgba(11,47,33,0.6)', fontSize: 13 }}>No Credit Card • No Signup Required</div>
@@ -230,7 +235,7 @@ export default function HomePage() {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
             <div className="neubrutal-card feature-card" style={{ padding: 32, background: 'linear-gradient(135deg, #fff 0%, #f0fff5 100%)' }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>🎤</div>
+              <div style={{ marginBottom: 16, color: 'var(--nb-accent)' }}><MicrophoneIcon size={56} /></div>
               <h3 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: 12, color: 'var(--nb-ink)' }}>Live Transcription</h3>
               <p style={{ color: 'rgba(11,47,33,0.7)', lineHeight: 1.6 }}>
                 Real-time captions powered by your browser's speech recognition. Fast, private, and completely free.
@@ -238,7 +243,7 @@ export default function HomePage() {
             </div>
 
             <div className="neubrutal-card feature-card" style={{ padding: 32, background: 'linear-gradient(135deg, #fff 0%, #e9f7ef 100%)' }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>🤖</div>
+              <div style={{ marginBottom: 16, color: 'var(--nb-accent)' }}><RobotIcon size={56} /></div>
               <h3 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: 12, color: 'var(--nb-ink)' }}>AI Summaries</h3>
               <p style={{ color: 'rgba(11,47,33,0.7)', lineHeight: 1.6 }}>
                 Automatic summaries using Google's Gemini AI. Get structured titles, bullets, and keywords instantly.
@@ -246,7 +251,7 @@ export default function HomePage() {
             </div>
 
             <div className="neubrutal-card feature-card" style={{ padding: 32, background: 'linear-gradient(135deg, #fff 0%, #dff3e8 100%)' }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>💾</div>
+              <div style={{ marginBottom: 16, color: 'var(--nb-accent)' }}><SaveIcon size={56} /></div>
               <h3 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: 12, color: 'var(--nb-ink)' }}>Export & Save</h3>
               <p style={{ color: 'rgba(11,47,33,0.7)', lineHeight: 1.6 }}>
                 Download transcripts, save to database, or export in multiple formats. Your data, your control.
@@ -268,16 +273,16 @@ export default function HomePage() {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 32 }}>
             {[
-              { step: '01', icon: '🎙️', title: 'Start Recording', desc: 'Click "Start" and choose your audio source - microphone for live transcription or tab audio for recordings.' },
-              { step: '02', icon: '📝', title: 'Watch Live Transcript', desc: 'See your words appear in real-time as you speak. Pause, resume, or stop anytime.' },
-              { step: '03', icon: '✨', title: 'Get AI Summary', desc: 'When you stop, Gemini AI generates a structured summary with keywords and action items.' },
-              { step: '04', icon: '⬇️', title: 'Export & Share', desc: 'Download transcripts as text, SRT, or Markdown. Access recordings anytime from your sessions.' },
+              { step: '01', Icon: MicrophoneIcon, title: 'Start Recording', desc: 'Click "Start" and choose your audio source - microphone for live transcription or tab audio for recordings.' },
+              { step: '02', Icon: DocumentWriteIcon, title: 'Watch Live Transcript', desc: 'See your words appear in real-time as you speak. Pause, resume, or stop anytime.' },
+              { step: '03', Icon: SparkleIcon, title: 'Get AI Summary', desc: 'When you stop, Gemini AI generates a structured summary with keywords and action items.' },
+              { step: '04', Icon: DownloadIcon, title: 'Export & Share', desc: 'Download transcripts as text, SRT, or Markdown. Access recordings anytime from your sessions.' },
             ].map((item, i) => (
               <div key={i} className="neubrutal-card" style={{ padding: 32, textAlign: 'center', position: 'relative', background: `linear-gradient(135deg, #fff 0%, ${i % 2 === 0 ? '#f0fff5' : '#e9f7ef'} 100%)` }}>
                 <div style={{ position: 'absolute', top: 16, right: 16, fontSize: '3rem', fontWeight: 900, color: 'rgba(79,176,122,0.15)', fontFamily: 'Poppins, sans-serif' }}>
                   {item.step}
                 </div>
-                <div style={{ fontSize: 64, marginBottom: 16 }}>{item.icon}</div>
+                <div style={{ marginBottom: 16, color: 'var(--nb-accent)' }}><item.Icon size={72} /></div>
                 <h3 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: 12, color: 'var(--nb-ink)' }}>
                   {item.title}
                 </h3>
@@ -299,15 +304,15 @@ export default function HomePage() {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20 }}>
             {[
-              { icon: '🔒', title: 'Privacy First', desc: 'Browser-based transcription keeps your data local' },
-              { icon: '🚀', title: 'Lightning Fast', desc: 'No server delays for live transcription' },
-              { icon: '🎨', title: 'Multiple Formats', desc: 'Export as Plain Text, Markdown, or SRT' },
-              { icon: '🔍', title: 'Smart Search', desc: 'Find sessions by keywords and content' },
-              { icon: '📊', title: 'Session Analytics', desc: 'Track transcript lengths and keywords' },
-              { icon: '🌐', title: 'Tab Recording', desc: 'Capture browser tab audio and videos' },
+              { Icon: LockIcon, title: 'Privacy First', desc: 'Browser-based transcription keeps your data local' },
+              { Icon: RocketIcon, title: 'Lightning Fast', desc: 'No server delays for live transcription' },
+              { Icon: PaletteIcon, title: 'Multiple Formats', desc: 'Export as Plain Text, Markdown, or SRT' },
+              { Icon: SearchIcon, title: 'Smart Search', desc: 'Find sessions by keywords and content' },
+              { Icon: ChartIcon, title: 'Session Analytics', desc: 'Track transcript lengths and keywords' },
+              { Icon: GlobeIcon, title: 'Tab Recording', desc: 'Capture browser tab audio and videos' },
             ].map((feat, i) => (
               <div key={i} className="neubrutal-card" style={{ padding: 24, textAlign: 'center', background: 'white' }}>
-                <div style={{ fontSize: 40, marginBottom: 8 }}>{feat.icon}</div>
+                <div style={{ marginBottom: 8, color: 'var(--nb-accent)', display: 'inline-block' }}><feat.Icon size={48} /></div>
                 <h4 style={{ fontWeight: 800, fontSize: '1.1rem', marginBottom: 8, color: 'var(--nb-ink)' }}>{feat.title}</h4>
                 <p style={{ fontSize: '0.9rem', color: 'rgba(11,47,33,0.7)' }}>{feat.desc}</p>
               </div>

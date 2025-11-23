@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { DownloadIcon, DocumentIcon, CheckIcon } from '../../components/Icons';
 
 export default function SessionDetail({ params }: { params: { id: string } }) {
   const { id } = params;
@@ -40,7 +41,7 @@ export default function SessionDetail({ params }: { params: { id: string } }) {
       <main className="min-h-screen" style={{ background: 'linear-gradient(135deg, #e9f7ef 0%, #f0fff5 50%, #fff 100%)', padding: '40px 20px' }}>
         <div className="max-w-5xl mx-auto">
           <div className="neubrutal-card" style={{ padding: 60, textAlign: 'center', background: 'white' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
+            <div style={{ fontSize: 48, marginBottom: 16 }}><CheckIcon size={48} /></div>
             <div style={{ fontSize: '1.3rem', fontWeight: 900, color: 'var(--nb-ink)' }}>Loading session...</div>
           </div>
         </div>
@@ -53,7 +54,7 @@ export default function SessionDetail({ params }: { params: { id: string } }) {
       <main className="min-h-screen" style={{ background: 'linear-gradient(135deg, #e9f7ef 0%, #f0fff5 50%, #fff 100%)', padding: '40px 20px' }}>
         <div className="max-w-5xl mx-auto">
           <div className="neubrutal-card" style={{ padding: 60, textAlign: 'center', background: 'white' }}>
-            <div style={{ fontSize: 64, marginBottom: 20 }}>❌</div>
+            <div style={{ fontSize: 64, marginBottom: 20 }}><DocumentIcon size={64} /></div>
             <h1 style={{ fontSize: '2rem', fontWeight: 900, marginBottom: 16, color: 'var(--nb-ink)' }}>Session Not Found</h1>
             <p style={{ fontSize: '1rem', color: 'rgba(11,47,33,0.6)', marginBottom: 32 }}>{error || 'The session you are looking for does not exist.'}</p>
             <Link href="/sessions" className="neubrutal-btn btn-primary" style={{ padding: '12px 28px', fontWeight: 900, display: 'inline-block' }}>
@@ -136,7 +137,7 @@ export default function SessionDetail({ params }: { params: { id: string } }) {
                 className="neubrutal-btn btn-ghost"
                 style={{ padding: '10px 20px', fontWeight: 800 }}
               >
-                📋 Copy
+                Copy
               </button>
               <button
                 onClick={() => {
@@ -151,7 +152,7 @@ export default function SessionDetail({ params }: { params: { id: string } }) {
                 className="neubrutal-btn"
                 style={{ padding: '10px 20px', fontWeight: 800, background: 'linear-gradient(135deg, var(--nb-accent) 0%, #37a169 100%)', color: 'white' }}
               >
-                📥 Export
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><DownloadIcon size={16} /> Export</span>
               </button>
             </div>
           </div>

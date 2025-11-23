@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { TrashIcon, DocumentIcon, WarningIcon } from '../../components/Icons';
 
 type SessionItem = { id: string; title?: string; transcript?: string; startedAt?: string; ownerEmail?: string; keywords?: string[] };
 
@@ -69,7 +70,7 @@ export default function TranscriptsPage() {
           boxShadow: '8px 8px 0 rgba(11,61,43,0.9)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <span style={{ fontSize: 40 }}>📝</span>
+            <div style={{ color: 'var(--nb-accent)' }}><DocumentIcon size={40} /></div>
             <div>
               <div className="transcript-title heading-live" style={{ margin: 0 }}>TRANSCRIPTS</div>
               <div style={{ fontSize: 14, color: 'rgba(11,47,33,0.6)', marginTop: 4 }}>
@@ -103,7 +104,7 @@ export default function TranscriptsPage() {
         
         {error ? (
           <div className="neubrutal-card" style={{ padding: 24, background: 'rgba(255,0,0,0.05)', border: '6px solid rgba(200,50,50,0.6)' }}>
-            <div className="text-sm" style={{ color: '#c92a2a' }}>⚠️ Error: {error}</div>
+            <div className="text-sm" style={{ color: '#c92a2a' }}><WarningIcon size={16} color="#c92a2a" /> Error: {error}</div>
           </div>
         ) : null}
 
@@ -159,7 +160,7 @@ export default function TranscriptsPage() {
                           }}
                           onClick={async () => {
                             try {
-                              const ok = confirm('🗑️ Delete this transcript and recording? This is permanent.');
+                              const ok = confirm('Delete this transcript and recording? This is permanent.');
                               if (!ok) return;
                               const res = await fetch(`/api/sessions/${encodeURIComponent(s.id)}`, { method: 'DELETE' });
                               if (!res.ok) {
@@ -175,7 +176,7 @@ export default function TranscriptsPage() {
                             }
                           }}
                         >
-                          <span style={{ filter: 'drop-shadow(0 1px 0 rgba(0,0,0,0.6))', color: '#fff' }}>🗑️</span>
+                          <TrashIcon size={18} color="#fff" />
                         </button>
                       </div>
                     </td>

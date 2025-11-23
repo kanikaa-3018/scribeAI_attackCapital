@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
+import { DocumentIcon, MicrophoneIcon, SparkleIcon, TrashIcon, WarningIcon } from './Icons';
 import { io } from "socket.io-client";
 
 type SessionItem = {
@@ -105,13 +106,13 @@ export default function SessionHistory() {
         display: 'flex', 
         alignItems: 'center', 
         gap: 12, 
-        marginBottom: 16,
+        marginBottom: 24,
         padding: '12px 16px',
         background: 'linear-gradient(135deg, rgba(79,176,122,0.08) 0%, rgba(79,176,122,0.02) 100%)',
         borderRadius: 12,
         border: '3px solid rgba(79,176,122,0.2)'
       }}>
-        <span style={{ fontSize: 24 }}>📚</span>
+        <div style={{ color: 'var(--nb-accent)' }}><DocumentIcon size={24} /></div>
         <div className="transcript-title heading-live" style={{ fontSize: '1.2rem', margin: 0 }}>SESSION HISTORY</div>
       </div>
 
@@ -124,13 +125,13 @@ export default function SessionHistory() {
       
       {error ? (
         <div className="text-sm" style={{ color: '#c92a2a', padding: 12, background: 'rgba(255,0,0,0.05)', borderRadius: 8, border: '2px solid rgba(255,0,0,0.2)' }}>
-          ⚠️ Error: {error}
+          <span style={{ verticalAlign: 'middle', marginRight: 6 }}><WarningIcon size={18} color="#c92a2a" /></span> Error: {error}
         </div>
       ) : null}
       
       {!loading && !error && sessions.length === 0 ? (
         <div className="neubrutal-card" style={{ padding: 24, textAlign: 'center', background: 'rgba(79,176,122,0.03)' }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🎤</div>
+          <div style={{ marginBottom: 12, color: 'var(--nb-accent)' }}><MicrophoneIcon size={48} /></div>
           <div className="text-sm muted">No sessions yet</div>
           <div style={{ fontSize: 12, color: 'rgba(11,47,33,0.6)', marginTop: 6 }}>
             Record something and it will appear here
@@ -217,7 +218,7 @@ export default function SessionHistory() {
                     onClick={() => setViewing({ session: s, tab: 'transcript' })}
                     style={{ fontSize: 12, padding: '6px 12px', fontWeight: 700 }}
                   >
-                    📄 Transcript
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><DocumentIcon size={14} />Transcript</span>
                   </button>
                 ) : null}
                 {s.summary ? (
@@ -226,7 +227,7 @@ export default function SessionHistory() {
                     onClick={() => setViewing({ session: s, tab: 'summary' })}
                     style={{ fontSize: 12, padding: '6px 12px', fontWeight: 700 }}
                   >
-                    ✨ Summary
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><SparkleIcon size={14} />Summary</span>
                   </button>
                 ) : null}
                 <button 
@@ -244,7 +245,7 @@ export default function SessionHistory() {
                   }}
                   title="Delete session"
                 >
-                  {deleting === s.id ? '...' : '🗑️'}
+                  {deleting === s.id ? '...' : <TrashIcon size={16} />}
                 </button>
               </div>
             </div>
@@ -298,8 +299,12 @@ export default function SessionHistory() {
           <div className="nb-modal neubrutal-card" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div style={{ fontWeight: 900, fontSize: '1.3rem', color: 'var(--nb-ink)' }}>
-                {viewing.tab === 'transcript' ? '📄 Transcript' : '✨ Summary'}
-              </div>
+                  {viewing.tab === 'transcript' ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><DocumentIcon size={18} />Transcript</span>
+                  ) : (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><SparkleIcon size={18} />Summary</span>
+                  )}
+                </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 {viewing.session.transcript ? (
                   <button 

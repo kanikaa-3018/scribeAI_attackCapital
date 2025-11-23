@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { MicrophoneIcon } from '../components/Icons';
 
 function sanitizeTitle(title?: string | null) {
   if (!title) return '';
@@ -69,7 +70,7 @@ export default function SessionsPage() {
           </div>
         ) : sessions.length === 0 ? (
           <div className="neubrutal-card" style={{ padding: 60, textAlign: 'center', background: 'white' }}>
-            <div style={{ fontSize: 64, marginBottom: 20 }}>🎙️</div>
+            <div style={{ marginBottom: 20, color: 'var(--nb-accent)' }}><MicrophoneIcon size={72} /></div>
             <div style={{ fontSize: '1.3rem', fontWeight: 900, marginBottom: 12, color: 'var(--nb-ink)' }}>No recordings yet</div>
             <div style={{ fontSize: '1rem', color: 'rgba(11,47,33,0.6)', marginBottom: 24 }}>Create your first recording from the dashboard</div>
             <Link href="/dashboard" className="neubrutal-btn btn-primary" style={{ padding: '12px 28px', fontWeight: 900 }}>

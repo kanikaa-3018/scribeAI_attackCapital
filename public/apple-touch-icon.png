@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <!-- Background -->
+  <rect width="180" height="180" fill="#FFE500"/>
+  
+  <!-- Microphone body -->
+  <rect x="70" y="45" width="40" height="60" rx="20" fill="#000"/>
+  
+  <!-- Microphone grill lines -->
+  <line x1="75" y1="55" x2="105" y2="55" stroke="#FFE500" stroke-width="2"/>
+  <line x1="75" y1="65" x2="105" y2="65" stroke="#FFE500" stroke-width="2"/>
+  <line x1="75" y1="75" x2="105" y2="75" stroke="#FFE500" stroke-width="2"/>
+  <line x1="75" y1="85" x2="105" y2="85" stroke="#FFE500" stroke-width="2"/>
+  <line x1="75" y1="95" x2="105" y2="95" stroke="#FFE500" stroke-width="2"/>
+  
+  <!-- Microphone bottom arc -->
+  <path d="M 55 105 Q 55 125 90 125 Q 125 125 125 105" fill="none" stroke="#000" stroke-width="6" stroke-linecap="round"/>
+  
+  <!-- Microphone stand -->
+  <line x1="90" y1="125" x2="90" y2="145" stroke="#000" stroke-width="6" stroke-linecap="round"/>
+  
+  <!-- Microphone base -->
+  <rect x="70" y="140" width="40" height="8" rx="4" fill="#000"/>
+  
+  <!-- Sound waves (right) -->
+  <path d="M 135 85 Q 145 85 145 90 Q 145 95 135 95" fill="none" stroke="#000" stroke-width="5" stroke-linecap="round"/>
+  <path d="M 150 75 Q 165 75 165 90 Q 165 105 150 105" fill="none" stroke="#000" stroke-width="5" stroke-linecap="round"/>
+  
+  <!-- Sound waves (left) -->
+  <path d="M 45 85 Q 35 85 35 90 Q 35 95 45 95" fill="none" stroke="#000" stroke-width="5" stroke-linecap="round"/>
+  <path d="M 30 75 Q 15 75 15 90 Q 15 105 30 105" fill="none" stroke="#000" stroke-width="5" stroke-linecap="round"/>
+  
+  <!-- AI Sparkle (top right) -->
+  <circle cx="125" cy="35" r="4" fill="#000"/>
+  <line x1="125" y1="25" x2="125" y2="45" stroke="#000" stroke-width="3"/>
+  <line x1="115" y1="35" x2="135" y2="35" stroke="#000" stroke-width="3"/>
+  
+  <!-- AI Sparkle (top left) -->
+  <circle cx="55" cy="30" r="3" fill="#000"/>
+  <line x1="55" y1="23" x2="55" y2="37" stroke="#000" stroke-width="2"/>
+  <line x1="48" y1="30" x2="62" y2="30" stroke="#000" stroke-width="2"/>
+</svg>
