@@ -27,14 +27,10 @@ function getSummarizerUrl() {
 console.log('server/gemini.js loaded. GEMINI_API_KEY present at load:', !!getApiKey(), 'summarizerUrl=', getSummarizerUrl());
 
 module.exports.transcribeAudioBuffer = async function transcribeAudioBuffer(/* buffer, sessionId */) {
-  // Server-side transcription disabled.
-  // This project now prefers client-side SpeechRecognition (browser) or
-  // explicit cloud services. To avoid requiring any server-side model,
-  // this function returns null and does not attempt Vosk or any cloud API.
   return null;
 };
 
-module.exports.transcribeAudioChunks = async function transcribeAudioChunks(chunkPaths) {
+module.exports.transcribeAudioChunks = async function transcribeAudioChunks(chunkPaths, socketEmitter) {
   // Try AssemblyAI first (better WebM support), fallback to Deepgram
   const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY || '';
   const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || '';
@@ -46,15 +42,15 @@ module.exports.transcribeAudioChunks = async function transcribeAudioChunks(chun
     return '';
   }
 
-  // Prefer AssemblyAI for WebM support
+  
   if (ASSEMBLYAI_API_KEY) {
-    return await transcribeWithAssemblyAI(chunkPaths, ASSEMBLYAI_API_KEY);
+    return await transcribeWithAssemblyAI(chunkPaths, ASSEMBLYAI_API_KEY, socketEmitter);
   } else {
-    return await transcribeWithDeepgram(chunkPaths, DEEPGRAM_API_KEY);
+    return await transcribeWithDeepgram(chunkPaths, DEEPGRAM_API_KEY, socketEmitter);
   }
 };
 
-async function transcribeWithAssemblyAI(chunkPaths, apiKey) {
+async function transcribeWithAssemblyAI(chunkPaths, apiKey, socketEmitter = null) {
   try {
     console.log(`Starting transcription for ${chunkPaths.length} audio chunks using AssemblyAI...`);
     
@@ -123,6 +119,11 @@ async function transcribeWithAssemblyAI(chunkPaths, apiKey) {
         if (transcript && transcript.trim()) {
           fullTranscript += transcript.trim() + ' ';
           console.log(`Chunk ${i + 1} transcribed: ${transcript.slice(0, 100)}...`);
+          
+          // Emit partial transcript immediately for real-time display
+          if (socketEmitter && typeof socketEmitter === 'function') {
+            socketEmitter(fullTranscript.trim(), i + 1);
+          }
         }
         
       } catch (chunkError) {
@@ -140,7 +141,7 @@ async function transcribeWithAssemblyAI(chunkPaths, apiKey) {
   }
 }
 
-async function transcribeWithDeepgram(chunkPaths, apiKey) {
+async function transcribeWithDeepgram(chunkPaths, apiKey, socketEmitter = null) {
   try {
     console.log(`Starting transcription for ${chunkPaths.length} audio chunks using Deepgram API...`);
     
@@ -180,6 +181,11 @@ async function transcribeWithDeepgram(chunkPaths, apiKey) {
         if (chunkText && chunkText.trim()) {
           fullTranscript += chunkText.trim() + ' ';
           console.log(`Chunk ${i + 1} transcribed: ${chunkText.slice(0, 100)}...`);
+          
+          // Emit partial transcript immediately for real-time display
+          if (socketEmitter && typeof socketEmitter === 'function') {
+            socketEmitter(fullTranscript.trim(), i + 1);
+          }
         } else {
           console.log(`Chunk ${i + 1} returned empty transcript`);
         }

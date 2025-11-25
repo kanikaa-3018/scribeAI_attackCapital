@@ -142,15 +142,31 @@ export default function RecordingPanel() {
     socket.on("connect", () => {
       console.log('Socket connected (client) id=', socket.id);
     });
-    socket.on("transcriptUpdate", (payload: { text: string }) => {
+    socket.on("transcriptUpdate", (payload: { text: string; isChunk?: boolean; sequence?: number }) => {
       const text = payload && payload.text ? String(payload.text) : '';
-      console.log('transcriptUpdate received (len):', text.length, 'preview:', text.slice(0,120));
-      // If client-side SpeechRecognition is running, prefer that and ignore server live updates
-      if (recognitionRef.current) {
+      const isChunk = payload && payload.isChunk === true;
+      const sequence = payload && payload.sequence ? payload.sequence : 0;
+      console.log('transcriptUpdate received (len):', text.length, 'isChunk:', isChunk, 'sequence:', sequence, 'preview:', text.slice(0,120));
+      
+      // For microphone recording: prefer client-side SpeechRecognition (skip server updates)
+      // For tab recording: use server transcription chunks
+      if (recognitionRef.current && !isChunk) {
         console.log('Skipping server transcriptUpdate because client SpeechRecognition is active');
         return;
       }
-      appendUniqueFinal(text);
+      
+      // For chunk updates (isChunk=true), append incrementally for real-time display
+      if (isChunk) {
+        console.log(`📝 Appending chunk ${sequence} to transcript`);
+        setFinalTranscript(prev => {
+          const updated = prev ? prev + ' ' + text.trim() : text.trim();
+          return updated;
+        });
+      } else {
+        // Final complete transcript - replace everything
+        setFinalTranscript(text);
+        setInterimTranscript('');
+      }
     });
     // Welcome message disabled - no need for placeholder
     socket.on('welcome', (payload: { message?: string }) => {
@@ -182,6 +198,8 @@ export default function RecordingPanel() {
         if (payload.downloadUrl || s.downloadUrl) {
           setDownloadUrl(String(payload.downloadUrl || s.downloadUrl));
         }
+        // Transition to COMPLETED state when session is saved
+        dispatch({ type: 'COMPLETE' });
         try { emitToast('Session saved', 'success'); } catch (e) {}
       } else {
         // no session body; clear summary
@@ -296,12 +314,29 @@ export default function RecordingPanel() {
       // If the user has selected a specific device, prefer it
       try {
         if (selectedDeviceId) {
-          return await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: selectedDeviceId } } as any });
+          const constraints = { 
+            audio: { 
+              deviceId: { exact: selectedDeviceId },
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false
+            } 
+          };
+          console.log('🎙️ Requesting microphone with constraints:', constraints);
+          return await navigator.mediaDevices.getUserMedia(constraints);
         }
       } catch (e) {
         console.warn('Failed to get selected audio device, falling back to default microphone', e);
       }
-      return await navigator.mediaDevices.getUserMedia({ audio: true });
+      const defaultConstraints = { 
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        }
+      };
+      console.log('🎙️ Requesting default microphone with constraints:', defaultConstraints);
+      return await navigator.mediaDevices.getUserMedia(defaultConstraints);
     } catch (err) {
       if (attempts > 0) {
         await new Promise(r => setTimeout(r, 600));
@@ -317,23 +352,86 @@ export default function RecordingPanel() {
       inputTypeRef.current = inputType;
       const stream = await acquireStream(inputType, 2);
       currentStreamRef.current = stream;
-      // Ensure we record from audio-only tracks to avoid MediaRecorder issues with mixed video streams
-      let audioStream = stream;
+      
+      // Log audio track details for debugging
+      const audioTracks = (stream && stream.getAudioTracks) ? stream.getAudioTracks() : [];
+      console.log(`🎤 Audio tracks found: ${audioTracks.length}`, audioTracks.map(t => ({ 
+        id: t.id, 
+        label: t.label, 
+        enabled: t.enabled, 
+        muted: t.muted,
+        readyState: t.readyState,
+        settings: t.getSettings ? t.getSettings() : {}
+      })));
+      
+      // CRITICAL: Ensure tracks are enabled
+      audioTracks.forEach(track => {
+        if (!track.enabled) {
+          console.warn('⚠️ Audio track was disabled, enabling now');
+          track.enabled = true;
+        }
+      });
+      
+      // TEST: Verify the stream actually has audio data using AudioContext
       try {
-        const audioTracks = (stream && stream.getAudioTracks) ? stream.getAudioTracks() : [];
-        if (audioTracks && audioTracks.length > 0) audioStream = new MediaStream(audioTracks);
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const testCtx = new AudioCtx();
+          const source = testCtx.createMediaStreamSource(stream);
+          const analyser = testCtx.createAnalyser();
+          analyser.fftSize = 256;
+          source.connect(analyser);
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          
+          // Sample audio level for 500ms
+          await new Promise(resolve => setTimeout(resolve, 500));
+          analyser.getByteFrequencyData(dataArray);
+          
+          const average = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+          console.log(`🔊 Audio level check - average: ${average.toFixed(2)} (should be > 0 if mic is working)`);
+          
+          if (average === 0) {
+            console.warn('⚠️ WARNING: Audio stream has no signal! Check if microphone is muted or not working.');
+            try { emitToast('Warning: No audio detected from microphone. Check if it\'s muted.', 'error'); } catch (e) {}
+          }
+          
+          // Don't close context yet, we'll use it for visualization
+          audioCtxRef.current = testCtx;
+        }
       } catch (e) {
-        console.warn('Could not create audio-only stream, using full stream', e);
+        console.warn('Could not test audio levels', e);
       }
+      
+      // IMPORTANT: For microphone, use the original stream directly
+      // Creating new MediaStream from tracks can break audio in some browsers
+      let audioStream = stream;
+      
+      // Only create a new stream for tab recording (to remove video tracks)
+      if (inputType === 'tab') {
+        const videoTracks = stream.getVideoTracks ? stream.getVideoTracks() : [];
+        if (videoTracks.length > 0) {
+          console.log(`📹 Removing ${videoTracks.length} video tracks from tab recording`);
+          // Stop video tracks to save bandwidth
+          videoTracks.forEach(track => track.stop());
+        }
+        // For tab, create audio-only stream
+        if (audioTracks.length > 0) {
+          audioStream = new MediaStream(audioTracks);
+        }
+      }
+      
       // Try explicit audio mime types for better browser compatibility
       let recorder: MediaRecorder;
       try {
         recorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' } as any);
+        console.log(`✅ MediaRecorder created with opus - mimeType: ${recorder.mimeType}, state: ${recorder.state}`);
       } catch (e) {
         try {
           recorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm' } as any);
+          console.log(`✅ MediaRecorder created with webm fallback - mimeType: ${recorder.mimeType}, state: ${recorder.state}`);
         } catch (e2) {
           recorder = new MediaRecorder(audioStream as MediaStream);
+          console.log(`✅ MediaRecorder created with default codec - mimeType: ${recorder.mimeType}, state: ${recorder.state}`);
         }
       }
       mediaRecorderRef.current = recorder;
@@ -347,6 +445,7 @@ export default function RecordingPanel() {
       const recorderOnDataAvailable = async (e: BlobEvent) => {
         try {
           const size = e.data ? e.data.size || 0 : 0;
+          console.log(`📦 Blob received - size: ${size} bytes, type: ${e.data?.type || 'unknown'}`);
           setLastBlobSize(size);
           if (size === 0) {
             blobZeroCountRef.current = (blobZeroCountRef.current || 0) + 1;
@@ -365,6 +464,7 @@ export default function RecordingPanel() {
             }
           }
           const arrayBuffer = await e.data.arrayBuffer();
+          console.log(`🎵 Sending chunk ${sequenceRef.current + 1} to server - ${arrayBuffer.byteLength} bytes`);
           const sessionId = sessionIdRef.current || `session-${Date.now()}`;
           sequenceRef.current += 1;
           socketRef.current?.emit("audioChunk", sessionId, arrayBuffer, sequenceRef.current);
@@ -529,7 +629,7 @@ export default function RecordingPanel() {
 
   function stopRecording() {
     try { mediaRecorderRef.current?.stop(); } catch (e) {}
-    dispatch({ type: 'COMPLETE' });
+    dispatch({ type: 'PROCESS' }); // Show PROCESSING state while server transcribes
     // notify server to stop session — server will transcribe and save, then emit `sessionSaved`
     const sid = sessionIdRef.current || `session-${Date.now()}`;
     // Include the current client-side transcript (if any) so server can use it

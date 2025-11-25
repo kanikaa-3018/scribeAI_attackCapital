@@ -91,22 +91,46 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     
     console.log(`Serving ${files.length} audio chunks for session ${id} from ${sessionDir}`);
     
-    // Concatenate all chunks into a single buffer
-    const buffers: Buffer[] = [];
-    for (const file of files) {
-      const chunkPath = path.join(sessionDir, file);
-      buffers.push(fs.readFileSync(chunkPath));
+    // For single chunk (typical microphone recording), serve it directly
+    if (files.length === 1) {
+      const audioPath = path.join(sessionDir, files[0]);
+      const buffer = fs.readFileSync(audioPath);
+      console.log(`Serving single audio chunk ${files[0]} (${(buffer.length / 1024).toFixed(2)}KB)`);
+      
+      return new NextResponse(buffer, {
+        status: 200,
+        headers: {
+          'Content-Type': 'audio/webm',
+          'Content-Length': buffer.length.toString(),
+          'Cache-Control': 'public, max-age=3600',
+        },
+      });
     }
     
-    const combinedBuffer = Buffer.concat(buffers);
+    // For multiple chunks, concatenate them
+    // Note: This works for webm files created by the same MediaRecorder session
+    console.log(`Concatenating ${files.length} chunks...`);
+    const buffers: Buffer[] = [];
+    let totalSize = 0;
     
-    return new NextResponse(combinedBuffer, {
+    for (const file of files) {
+      const filePath = path.join(sessionDir, file);
+      const buffer = fs.readFileSync(filePath);
+      buffers.push(buffer);
+      totalSize += buffer.length;
+      console.log(`  Chunk ${file}: ${(buffer.length / 1024).toFixed(2)}KB`);
+    }
+    
+    const concatenated = Buffer.concat(buffers);
+    console.log(`Total concatenated size: ${(totalSize / 1024).toFixed(2)}KB`);
+    
+    return new NextResponse(concatenated, {
       status: 200,
       headers: {
         'Content-Type': 'audio/webm',
-        'Content-Length': combinedBuffer.length.toString(),
-        'Accept-Ranges': 'bytes',
-        'Cache-Control': 'public, max-age=31536000',
+        'Content-Length': concatenated.length.toString(),
+        'Cache-Control': 'public, max-age=3600',
+        'X-Audio-Chunks': files.length.toString(),
       },
     });
   } catch (e: any) {

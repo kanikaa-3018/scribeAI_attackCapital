@@ -100,10 +100,37 @@ export default function SessionDetail({ params }: { params: { id: string } }) {
         </div>
 
         {/* Audio Recording Card */}
-        {session.audioUrl && (
+        {(session.audioUrl || session.id || session.clientSessionId) && (
           <div className="neubrutal-card" style={{ padding: 32, background: 'white' }}>
-            <h3 style={{ fontSize: '1.5rem', fontWeight: 900, marginBottom: 20, color: 'var(--nb-ink)' }}>Audio Recording</h3>
-            <audio controls preload="metadata" style={{ width: '100%' }} src={session.audioUrl || `/api/sessions/${session.id || session.clientSessionId}/audio`} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 16 }}>
+              <h3 style={{ fontSize: '1.5rem', fontWeight: 900, margin: 0, color: 'var(--nb-ink)' }}>Audio Recording</h3>
+              <a 
+                href={session.audioUrl || `/api/sessions/${session.id || session.clientSessionId}/audio`}
+                download={`recording-${session.id || session.clientSessionId}.webm`}
+                className="neubrutal-btn btn-ghost"
+                style={{ padding: '10px 20px', fontWeight: 800 }}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><DownloadIcon size={16} /> Download</span>
+              </a>
+            </div>
+            <audio 
+              controls 
+              preload="metadata" 
+              style={{ width: '100%' }}
+            >
+              <source 
+                src={session.audioUrl || `/api/sessions/${session.id || session.clientSessionId}/audio`}
+                type="audio/webm;codecs=opus"
+              />
+              <source 
+                src={session.audioUrl || `/api/sessions/${session.id || session.clientSessionId}/audio`}
+                type="audio/webm"
+              />
+              <p>Your browser does not support audio playback.</p>
+            </audio>
+            <div style={{ marginTop: 12, fontSize: 13, color: 'rgba(11,47,33,0.6)' }}>
+              If audio doesn't play in browser, download the file and play it in VLC or another media player.
+            </div>
           </div>
         )}
 

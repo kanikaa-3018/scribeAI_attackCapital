@@ -62,3 +62,6 @@ Thumbs.db
 # Logs
 logs/
 *.log
+
+# Documentation with sensitive info
+FIXES_SUMMARY.md

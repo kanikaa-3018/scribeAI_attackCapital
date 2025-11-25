@@ -55,13 +55,65 @@ export default function registerRecordingHandlers(io: Server) {
         (socket as any).data = (socket as any).data || {};
         // @ts-ignore
         (socket as any).data.sessionId = sid;
-        // Do not emit a placeholder transcript for each saved chunk — only
-        // emit real transcription results. Keep a server-side log for
-        // debugging when no transcription is available.
+        
         console.log(`Saved chunk ${sequence} for session ${sid}, size ${buf.length} -> ${filename}`);
-        // Server-side transcription disabled: we store chunks for download
-        // and rely on client-side SpeechRecognition (or external ASR)
-        // to provide live transcripts. Do not attempt server ASR here.
+        
+        // Real-time transcription for tab audio - transcribe each chunk as it arrives
+        // Only if we have AssemblyAI/Deepgram API keys configured
+        const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY || '';
+        const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || '';
+        
+        // Only transcribe if chunk has meaningful data (> 1KB) to avoid wasting API calls
+        if (DEEPGRAM_API_KEY && buf.length > 1000) {
+          try {
+            // Use Deepgram directly for fastest real-time transcription (< 1 second typically)
+            const response = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Token ${DEEPGRAM_API_KEY}`,
+                'Content-Type': 'audio/webm'
+              },
+              body: buf
+            });
+
+            if (response.ok) {
+              const result = await response.json();
+              let chunkText = '';
+              
+              if (result && result.results && result.results.channels && result.results.channels[0]) {
+                const alternatives = result.results.channels[0].alternatives;
+                if (alternatives && alternatives[0]) {
+                  chunkText = alternatives[0].transcript || '';
+                }
+              }
+
+              if (chunkText && chunkText.trim()) {
+                socket.emit('transcriptUpdate', { text: chunkText, isChunk: true, sequence });
+                console.log(`✅ Real-time chunk ${sequence} transcribed (${chunkText.length} chars): ${chunkText.slice(0, 80)}...`);
+              }
+            } else {
+              console.warn(`Deepgram error for chunk ${sequence}:`, await response.text());
+            }
+          } catch (transcribeError) {
+            console.warn(`Real-time transcription failed for chunk ${sequence}:`, transcribeError);
+          }
+        } else if (ASSEMBLYAI_API_KEY && buf.length > 1000 && !DEEPGRAM_API_KEY) {
+          // Fallback to AssemblyAI if no Deepgram key (slower but still works)
+          try {
+            const { transcribeAudioChunks } = await import('../gemini.js');
+            const emitter = (partialTranscript: string, chunkNum: number) => {
+              socket.emit('transcriptUpdate', { text: partialTranscript, isChunk: true, sequence: chunkNum });
+            };
+            const chunkTranscript = await transcribeAudioChunks([filename], emitter);
+            
+            if (chunkTranscript && chunkTranscript.trim()) {
+              socket.emit('transcriptUpdate', { text: chunkTranscript, isChunk: true, sequence });
+              console.log(`Real-time transcription for chunk ${sequence}: ${chunkTranscript.slice(0, 100)}...`);
+            }
+          } catch (transcribeError) {
+            console.warn(`Real-time transcription failed for chunk ${sequence}:`, transcribeError);
+          }
+        }
       } catch (err) {
         console.error('Failed saving audio chunk', err);
         socket.emit('statusChange', { status: 'ERROR' });
@@ -103,10 +155,15 @@ export default function registerRecordingHandlers(io: Server) {
           socket.emit('transcriptUpdate', { text: fullTranscript });
         } else if (list.length > 0) {
           // No client transcript (tab audio) - use Deepgram API for server-side transcription
-          console.log(`No client transcript. Attempting server-side transcription for ${list.length} chunks using Deepgram...`);
+          console.log(`No client transcript. Attempting server-side transcription for ${list.length} chunks using AssemblyAI/Deepgram...`);
           try {
             const { transcribeAudioChunks } = await import('../gemini.js');
-            fullTranscript = await transcribeAudioChunks(list);
+            // Pass emitter function to get real-time updates as each chunk completes
+            const emitter = (partialTranscript: string, chunkNum: number) => {
+              console.log(`Emitting partial transcript (chunk ${chunkNum}/${list.length}): ${partialTranscript.length} chars`);
+              socket.emit('transcriptUpdate', { text: partialTranscript, isChunk: true, sequence: chunkNum });
+            };
+            fullTranscript = await transcribeAudioChunks(list, emitter);
             console.log('Server transcription completed, length=', fullTranscript.length);
             socket.emit('transcriptUpdate', { text: fullTranscript });
           } catch (transcribeError) {

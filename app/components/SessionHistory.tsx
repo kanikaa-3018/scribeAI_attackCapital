@@ -25,6 +25,18 @@ export default function SessionHistory() {
   const [viewing, setViewing] = useState<{ session: SessionItem | null; tab: 'transcript' | 'summary' } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (viewing) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [viewing]);
+
   const handleDelete = async (sessionId: string) => {
     if (!confirm('Delete this session? This cannot be undone.')) return;
     

@@ -104,15 +104,25 @@ body {
 .neubrutal-btn:hover { transform: translate(-2px,-2px); }
 
 .nb-modal-backdrop {
-  position: fixed; inset: 0; display:flex; align-items:center; justify-content:center;
-  background: rgba(11,61,43,0.06); z-index:50;
+  position: fixed; 
+  inset: 0; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center;
+  z-index: 1000;
+  overflow-y: auto;
 }
 .nb-modal {
   width: min(820px, 96%);
-  max-height: 86vh; overflow:auto;
-  padding: 20px; background: var(--nb-bg); color: var(--nb-ink);
-  border: 6px solid var(--nb-border); box-shadow: 14px 14px 0 rgba(11,61,43,0.95);
+  max-height: 86vh; 
+  overflow: auto;
+  padding: 20px; 
+  background: #ffffff; 
+  color: var(--nb-ink);
+  border: 6px solid var(--nb-border); 
+  box-shadow: 14px 14px 0 rgba(11,61,43,0.95);
   border-radius: 12px;
+  margin: auto;
 }
 
 .transcript-container {

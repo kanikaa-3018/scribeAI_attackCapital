@@ -35,6 +35,18 @@ export default function SummariesPage() {
   const pageSize = 8;
   const [viewing, setViewing] = useState<SessionItem | null>(null);
 
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (viewing) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [viewing]);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
