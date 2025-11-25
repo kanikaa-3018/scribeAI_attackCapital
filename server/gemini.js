@@ -31,30 +31,24 @@ module.exports.transcribeAudioBuffer = async function transcribeAudioBuffer(/* b
 };
 
 module.exports.transcribeAudioChunks = async function transcribeAudioChunks(chunkPaths, socketEmitter) {
-  // Try AssemblyAI first (better WebM support), fallback to Deepgram
+  // Use AssemblyAI exclusively (better WebM support + speaker diarization)
   const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY || '';
-  const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || '';
   
-  if (!ASSEMBLYAI_API_KEY && !DEEPGRAM_API_KEY) {
-    console.log('No transcription API key found.');
-    console.log('Get free AssemblyAI key at https://www.assemblyai.com/dashboard/signup');
-    console.log('Or Deepgram key at https://console.deepgram.com/signup');
+  if (!ASSEMBLYAI_API_KEY) {
+    console.log('No AssemblyAI API key found.');
+    console.log('Get free AssemblyAI key (100 hours/month) at https://www.assemblyai.com/dashboard/signup');
     return '';
   }
 
-  
-  if (ASSEMBLYAI_API_KEY) {
-    return await transcribeWithAssemblyAI(chunkPaths, ASSEMBLYAI_API_KEY, socketEmitter);
-  } else {
-    return await transcribeWithDeepgram(chunkPaths, DEEPGRAM_API_KEY, socketEmitter);
-  }
+  return await transcribeWithAssemblyAI(chunkPaths, ASSEMBLYAI_API_KEY, socketEmitter);
 };
 
 async function transcribeWithAssemblyAI(chunkPaths, apiKey, socketEmitter = null) {
   try {
-    console.log(`Starting transcription for ${chunkPaths.length} audio chunks using AssemblyAI...`);
+    console.log(`Starting transcription for ${chunkPaths.length} audio chunks using AssemblyAI with speaker diarization...`);
     
     let fullTranscript = '';
+    let allUtterances = []; // Store speaker-labeled utterances
     
     for (let i = 0; i < chunkPaths.length; i++) {
       const chunkPath = chunkPaths[i];
@@ -62,7 +56,6 @@ async function transcribeWithAssemblyAI(chunkPaths, apiKey, socketEmitter = null
       
       try {
         const audioBuffer = fs.readFileSync(chunkPath);
-        const base64Audio = audioBuffer.toString('base64');
         
         // Upload audio file
         const uploadResponse = await fetch('https://api.assemblyai.com/v2/upload', {
@@ -81,7 +74,7 @@ async function transcribeWithAssemblyAI(chunkPaths, apiKey, socketEmitter = null
           continue;
         }
         
-        // Submit transcription request
+        // Submit transcription request with speaker diarization enabled
         const transcriptResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
           method: 'POST',
           headers: {
@@ -89,7 +82,10 @@ async function transcribeWithAssemblyAI(chunkPaths, apiKey, socketEmitter = null
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            audio_url: uploadData.upload_url
+            audio_url: uploadData.upload_url,
+            speaker_labels: true, // Enable speaker diarization
+            punctuate: true,
+            format_text: true
           })
         });
         
@@ -97,18 +93,17 @@ async function transcribeWithAssemblyAI(chunkPaths, apiKey, socketEmitter = null
         const transcriptId = transcriptData.id;
         
         // Poll for completion
-        let transcript = null;
-        for (let attempt = 0; attempt < 30; attempt++) {
+        let result = null;
+        for (let attempt = 0; attempt < 60; attempt++) {
           await new Promise(resolve => setTimeout(resolve, 1000));
           
           const resultResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
             headers: { 'authorization': apiKey }
           });
           
-          const result = await resultResponse.json();
+          result = await resultResponse.json();
           
           if (result.status === 'completed') {
-            transcript = result.text || '';
             break;
           } else if (result.status === 'error') {
             console.warn(`AssemblyAI error for chunk ${i}:`, result.error);
@@ -116,13 +111,34 @@ async function transcribeWithAssemblyAI(chunkPaths, apiKey, socketEmitter = null
           }
         }
         
-        if (transcript && transcript.trim()) {
-          fullTranscript += transcript.trim() + ' ';
-          console.log(`Chunk ${i + 1} transcribed: ${transcript.slice(0, 100)}...`);
+        if (result && result.status === 'completed') {
+          let chunkText = '';
           
-          // Emit partial transcript immediately for real-time display
-          if (socketEmitter && typeof socketEmitter === 'function') {
-            socketEmitter(fullTranscript.trim(), i + 1);
+          // Check if we have speaker-labeled utterances
+          if (result.utterances && result.utterances.length > 0) {
+            // Format with speaker labels
+            for (const utterance of result.utterances) {
+              const speaker = utterance.speaker ? `Speaker ${utterance.speaker}` : 'Speaker';
+              const text = utterance.text || '';
+              if (text.trim()) {
+                chunkText += `${speaker}: ${text}\n`;
+                allUtterances.push({ speaker, text });
+              }
+            }
+            console.log(`Chunk ${i + 1} transcribed with ${result.utterances.length} speaker segments`);
+          } else {
+            // Fallback to regular transcript
+            chunkText = result.text || '';
+          }
+          
+          if (chunkText && chunkText.trim()) {
+            fullTranscript += chunkText.trim() + '\n';
+            console.log(`Chunk ${i + 1} transcribed: ${chunkText.slice(0, 100)}...`);
+            
+            // Emit partial transcript immediately for real-time display
+            if (socketEmitter && typeof socketEmitter === 'function') {
+              socketEmitter(fullTranscript.trim(), i + 1);
+            }
           }
         }
         
@@ -132,7 +148,7 @@ async function transcribeWithAssemblyAI(chunkPaths, apiKey, socketEmitter = null
     }
     
     const finalTranscript = fullTranscript.trim();
-    console.log(`Transcription complete! Total length: ${finalTranscript.length} characters`);
+    console.log(`Transcription complete with speaker diarization! Total length: ${finalTranscript.length} characters, ${allUtterances.length} utterances`);
     return finalTranscript;
     
   } catch (error) {
@@ -143,9 +159,10 @@ async function transcribeWithAssemblyAI(chunkPaths, apiKey, socketEmitter = null
 
 async function transcribeWithDeepgram(chunkPaths, apiKey, socketEmitter = null) {
   try {
-    console.log(`Starting transcription for ${chunkPaths.length} audio chunks using Deepgram API...`);
+    console.log(`Starting transcription for ${chunkPaths.length} audio chunks using Deepgram API with speaker diarization...`);
     
     let fullTranscript = '';
+    let allUtterances = []; // Store speaker-labeled utterances
     
     for (let i = 0; i < chunkPaths.length; i++) {
       const chunkPath = chunkPaths[i];
@@ -154,7 +171,8 @@ async function transcribeWithDeepgram(chunkPaths, apiKey, socketEmitter = null) 
       try {
         const audioBuffer = fs.readFileSync(chunkPath);
         
-        const response = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true', {
+        // Enable diarization to identify different speakers
+        const response = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&diarize=true&punctuate=true', {
           method: 'POST',
           headers: {
             'Authorization': `Token ${apiKey}`,
@@ -174,13 +192,47 @@ async function transcribeWithDeepgram(chunkPaths, apiKey, socketEmitter = null) 
         if (result && result.results && result.results.channels && result.results.channels[0]) {
           const alternatives = result.results.channels[0].alternatives;
           if (alternatives && alternatives[0]) {
-            chunkText = alternatives[0].transcript || '';
+            // Extract diarized words with speaker labels
+            const words = alternatives[0].words || [];
+            if (words.length > 0) {
+              // Group words by speaker
+              let currentSpeaker = null;
+              let currentText = '';
+              
+              for (const word of words) {
+                const speaker = word.speaker !== undefined ? `Speaker ${word.speaker}` : null;
+                
+                if (speaker && speaker !== currentSpeaker) {
+                  // Save previous speaker's text
+                  if (currentSpeaker && currentText.trim()) {
+                    const utterance = `${currentSpeaker}: ${currentText.trim()}`;
+                    allUtterances.push({ speaker: currentSpeaker, text: currentText.trim() });
+                    chunkText += utterance + '\n';
+                  }
+                  // Start new speaker
+                  currentSpeaker = speaker;
+                  currentText = word.word || word.punctuated_word || '';
+                } else {
+                  currentText += ' ' + (word.word || word.punctuated_word || '');
+                }
+              }
+              
+              // Add final speaker's text
+              if (currentSpeaker && currentText.trim()) {
+                const utterance = `${currentSpeaker}: ${currentText.trim()}`;
+                allUtterances.push({ speaker: currentSpeaker, text: currentText.trim() });
+                chunkText += utterance + '\n';
+              }
+            } else {
+              // Fallback to regular transcript if no words array
+              chunkText = alternatives[0].transcript || '';
+            }
           }
         }
 
         if (chunkText && chunkText.trim()) {
-          fullTranscript += chunkText.trim() + ' ';
-          console.log(`Chunk ${i + 1} transcribed: ${chunkText.slice(0, 100)}...`);
+          fullTranscript += chunkText.trim() + '\n';
+          console.log(`Chunk ${i + 1} transcribed with speakers: ${chunkText.slice(0, 100)}...`);
           
           // Emit partial transcript immediately for real-time display
           if (socketEmitter && typeof socketEmitter === 'function') {
@@ -196,7 +248,7 @@ async function transcribeWithDeepgram(chunkPaths, apiKey, socketEmitter = null) 
     }
 
     const finalTranscript = fullTranscript.trim();
-    console.log(`Transcription complete! Total length: ${finalTranscript.length} characters`);
+    console.log(`Transcription complete with speaker diarization! Total length: ${finalTranscript.length} characters, ${allUtterances.length} utterances`);
     return finalTranscript;
     
   } catch (error) {
@@ -209,11 +261,35 @@ module.exports.generateSummary = async function generateSummary(fullTranscript) 
   const API_KEY = getApiKey();
   if (!API_KEY) {
     await new Promise((r) => setTimeout(r, 200));
-    return { title: '', bullets: [], text: `(placeholder) summary: ${fullTranscript.slice(0, 160)}`, keywords: extractKeywords(fullTranscript, 6) };
+    return { title: '', bullets: [], text: `(placeholder) summary: ${fullTranscript.slice(0, 160)}`, keywords: extractKeywords(fullTranscript, 6), actionItems: [] };
   }
 
     try {
-      const prompt = `You are ScribeAI. Produce a short summary and a one-line title from the following transcript. Be concise and action-oriented. Output MUST be valid JSON with two keys: "title" (string) and "bullets" (array of short strings). Example: {"title":"Meeting about X","bullets":["action 1","note 2"]}. Transcript:\n\n${fullTranscript}`;
+      const prompt = `You are ScribeAI. Analyze the following transcript and extract:
+1. A concise title (one line)
+2. Key bullet points (3-6 short summaries)
+3. Action items with type classification:
+   - TASK: Things that need to be done (e.g., "John will send the report by Friday")
+   - DECISION: Decisions that were made (e.g., "Approved budget increase of 10%")
+   - QUESTION: Important questions raised (e.g., "How do we handle edge cases?")
+
+For each action item, extract:
+- description: What needs to be done/decided/answered
+- assignee: Person's name if mentioned (or null)
+- deadline: Deadline if mentioned (or null)
+
+Output MUST be valid JSON:
+{
+  "title": "Meeting Title",
+  "bullets": ["summary point 1", "point 2"],
+  "actionItems": [
+    {"type": "TASK", "description": "Send report", "assignee": "John", "deadline": "Friday"},
+    {"type": "DECISION", "description": "Approved budget", "assignee": null, "deadline": null}
+  ]
+}
+
+Transcript:
+${fullTranscript}`;
 
     const body = {
       model: process.env.GEMINI_MODEL || 'gpt-4o-mini',
@@ -229,9 +305,7 @@ module.exports.generateSummary = async function generateSummary(fullTranscript) 
     // call Google's Generative Language API (AI Studio / Vertex) using the API key in the query string if possible.
     const isGoogle = (process.env.GEMINI_PROVIDER === 'google') || String(API_KEY).startsWith('AIza');
     if (isGoogle) {
-      // Prefer a free-tier Gemini model by default. Users should set `GEMINI_MODEL` to the exact
-      // model name available in their Google AI Studio account. Here we default to a 2.5-series
-      // non-pro model name; change via env if your account exposes a different free-tier name.
+
       const model = process.env.GEMINI_MODEL || process.env.GOOGLE_GEMINI_MODEL || 'gemini-2.5-flash';
       try {
         const genai = await import('@google/genai');
@@ -279,15 +353,25 @@ module.exports.generateSummary = async function generateSummary(fullTranscript) 
           const parsed = JSON.parse(candidate);
           const title = parsed.title || parsed.name || '';
           const bullets = Array.isArray(parsed.bullets) ? parsed.bullets : (parsed.points || []);
+          const actionItems = Array.isArray(parsed.actionItems) ? parsed.actionItems : [];
           const sb = [];
           if (title) sb.push(`Title: ${title}`);
           if (bullets && bullets.length) {
             sb.push('Bullets:');
             for (const b of bullets) sb.push(`- ${String(b)}`);
           }
-          return { title, bullets, text: sb.join('\n'), keywords: extractKeywords(fullTranscript, 6) };
+          if (actionItems && actionItems.length) {
+            sb.push('\nAction Items:');
+            for (const item of actionItems) {
+              const typeLabel = item.type || 'TASK';
+              const assigneePart = item.assignee ? ` (@${item.assignee})` : '';
+              const deadlinePart = item.deadline ? ` [Due: ${item.deadline}]` : '';
+              sb.push(`${typeLabel}: ${item.description}${assigneePart}${deadlinePart}`);
+            }
+          }
+          return { title, bullets, text: sb.join('\n'), keywords: extractKeywords(fullTranscript, 6), actionItems };
         } catch (e) {
-          return { title: '', bullets: [], text: raw, keywords: extractKeywords(fullTranscript, 6) };
+          return { title: '', bullets: [], text: raw, keywords: extractKeywords(fullTranscript, 6), actionItems: [] };
         }
       } catch (err) {
         console.error('Google GenAI SDK call failed', err && err.message ? err.message : err);
@@ -326,21 +410,31 @@ module.exports.generateSummary = async function generateSummary(fullTranscript) 
         const parsed = JSON.parse(candidate);
         const title = parsed.title || parsed.name || '';
         const bullets = Array.isArray(parsed.bullets) ? parsed.bullets : (parsed.points || []);
+        const actionItems = Array.isArray(parsed.actionItems) ? parsed.actionItems : [];
         const sb = [];
         if (title) sb.push(`Title: ${title}`);
         if (bullets && bullets.length) {
           sb.push('Bullets:');
           for (const b of bullets) sb.push(`- ${String(b)}`);
         }
-        return { title, bullets, text: sb.join('\n'), keywords: extractKeywords(fullTranscript, 6) };
+        if (actionItems && actionItems.length) {
+          sb.push('\nAction Items:');
+          for (const item of actionItems) {
+            const typeLabel = item.type || 'TASK';
+            const assigneePart = item.assignee ? ` (@${item.assignee})` : '';
+            const deadlinePart = item.deadline ? ` [Due: ${item.deadline}]` : '';
+            sb.push(`${typeLabel}: ${item.description}${assigneePart}${deadlinePart}`);
+          }
+        }
+        return { title, bullets, text: sb.join('\n'), keywords: extractKeywords(fullTranscript, 6), actionItems };
       } catch (e) {
-        return { title: '', bullets: [], text: raw2, keywords: extractKeywords(fullTranscript, 6) };
+        return { title: '', bullets: [], text: raw2, keywords: extractKeywords(fullTranscript, 6), actionItems: [] };
       }
     }
 
-    return { title: '', bullets: [], text: fullTranscript.slice(0, 400) + (fullTranscript.length > 400 ? '...' : ''), keywords: extractKeywords(fullTranscript, 6) };
+    return { title: '', bullets: [], text: fullTranscript.slice(0, 400) + (fullTranscript.length > 400 ? '...' : ''), keywords: extractKeywords(fullTranscript, 6), actionItems: [] };
   } catch (err) {
     console.error('generateSummary error', err && err.message ? err.message : err);
-    return { title: '', bullets: [], text: `(error generating summary: ${err && err.message ? err.message : String(err)})`, keywords: extractKeywords(fullTranscript, 6) };
+    return { title: '', bullets: [], text: `(error generating summary: ${err && err.message ? err.message : String(err)})`, keywords: extractKeywords(fullTranscript, 6), actionItems: [] };
   }
 };

@@ -36,9 +36,64 @@ export async function POST(req: Request) {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { PrismaClient } = await import('@prisma/client');
         const prisma = new PrismaClient();
-        const { title = 'Untitled session', transcript = '', summary = null, startedAt = new Date().toISOString(), endedAt = new Date().toISOString(), ownerEmail, clientSessionId } = body;
+        const { title = 'Untitled session', transcript = '', summary = null, startedAt = new Date().toISOString(), endedAt = new Date().toISOString(), ownerEmail, clientSessionId, keywords, downloadUrl, actionItems } = body;
 
         const ownerEmailSafe = ownerEmail || 'unknown@local';
+
+        // Check if session already exists with this clientSessionId
+        // If it exists, UPDATE it with the new data (summary, transcript, etc.)
+        if (clientSessionId) {
+          const existing = await prisma.session.findFirst({
+            where: { clientSessionId: String(clientSessionId) }
+          });
+          
+          if (existing) {
+            console.log(`Session with clientSessionId ${clientSessionId} already exists, updating with summary and transcript`);
+            
+            // Update the existing session with new data
+            const updated = await prisma.session.update({
+              where: { id: existing.id },
+              data: {
+                title,
+                transcript,
+                summary,
+                endedAt: new Date(endedAt),
+                status: 'COMPLETED'
+              }
+            });
+            
+            // Create or update action items
+            if (actionItems && Array.isArray(actionItems) && actionItems.length > 0) {
+              try {
+                // Delete old action items first
+                await prisma.actionItem.deleteMany({
+                  where: { sessionId: existing.id }
+                });
+                
+                // Create new action items
+                for (const item of actionItems) {
+                  await prisma.actionItem.create({
+                    data: {
+                      sessionId: existing.id,
+                      type: item.type || 'TASK',
+                      description: item.description || '',
+                      assignee: item.assignee || null,
+                      deadline: item.deadline || null,
+                      timestamp: new Date()
+                    }
+                  });
+                }
+                console.log(`Updated ${actionItems.length} action items for session ${existing.id}`);
+              } catch (aiErr) {
+                console.warn('Failed to update action items:', aiErr);
+              }
+            }
+            
+            await prisma.$disconnect();
+            const respSession = { ...updated, keywords: keywords || [], downloadUrl: downloadUrl || null, actionItems: actionItems || [] };
+            return NextResponse.json({ ok: true, session: respSession }, { status: 200 });
+          }
+        }
 
         const session = await prisma.session.create({
           data: {
@@ -57,9 +112,31 @@ export async function POST(req: Request) {
             }
           }
         });
+        
+        // Create action items if provided
+        if (actionItems && Array.isArray(actionItems) && actionItems.length > 0) {
+          try {
+            for (const item of actionItems) {
+              await prisma.actionItem.create({
+                data: {
+                  sessionId: session.id,
+                  type: item.type || 'TASK',
+                  description: item.description || '',
+                  assignee: item.assignee || null,
+                  deadline: item.deadline || null,
+                  timestamp: new Date()
+                }
+              });
+            }
+            console.log(`Created ${actionItems.length} action items for session ${session.id}`);
+          } catch (aiErr) {
+            console.warn('Failed to create action items:', aiErr);
+          }
+        }
+        
         await prisma.$disconnect();
         // Attach any incoming metadata (keywords, downloadUrl, clientSessionId) to the response
-        const respSession = { ...session, keywords: body.keywords || [], downloadUrl: body.downloadUrl || null, clientSessionId: body.clientSessionId || null };
+        const respSession = { ...session, keywords: keywords || [], downloadUrl: downloadUrl || null, clientSessionId: clientSessionId || null, actionItems: actionItems || [] };
         return NextResponse.json({ ok: true, session: respSession }, { status: 201 });
       } catch (prismaErr) {
         // If Prisma isn't available or creation fails, fall through to file-backed storage

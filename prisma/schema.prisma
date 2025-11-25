@@ -34,6 +34,7 @@ model Session {
   summary          String?
   clientSessionId  String?       @map("client_session_id")
   AudioChunks      AudioChunk[]
+  ActionItems      ActionItem[]
 }
 
 model AudioChunk {
@@ -43,4 +44,22 @@ model AudioChunk {
   sequence  Int
   timestamp DateTime
   text      String
+  speaker   String?  // Speaker label from diarization (e.g., "Speaker 1")
+}
+
+model ActionItem {
+  id          String   @id @default(cuid())
+  sessionId   String   @map("session_id")
+  session     Session  @relation(fields: [sessionId], references: [id])
+  type        ActionItemType // task, decision, question
+  description String
+  assignee    String?  // Extracted name if mentioned
+  deadline    String?  // Extracted deadline if mentioned
+  timestamp   DateTime @default(now())
+}
+
+enum ActionItemType {
+  TASK
+  DECISION
+  QUESTION
 }

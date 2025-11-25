@@ -62,7 +62,7 @@ export default function HomePage() {
                 fontSize: 14,
                 color: 'var(--nb-accent)',
                 letterSpacing: '1px',
-                display: 'flex',
+                // display: 'flex',
                 alignItems: 'center',
                 gap: 8,
                 justifyContent: 'center'

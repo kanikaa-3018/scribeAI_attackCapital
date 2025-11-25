@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { DocumentIcon, MicrophoneIcon, SparkleIcon, TrashIcon, WarningIcon } from './Icons';
 import { io } from "socket.io-client";
+import Modal from './Modal';
 
 type SessionItem = {
   id: string;
@@ -24,18 +25,6 @@ export default function SessionHistory() {
   const [total, setTotal] = useState<number | null>(null);
   const [viewing, setViewing] = useState<{ session: SessionItem | null; tab: 'transcript' | 'summary' } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-
-  // Lock body scroll when modal is open
-  useEffect(() => {
-    if (viewing) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [viewing]);
 
   const handleDelete = async (sessionId: string) => {
     if (!confirm('Delete this session? This cannot be undone.')) return;
@@ -307,54 +296,44 @@ export default function SessionHistory() {
       </div>
 
       {viewing && viewing.session ? (
-        <div className="nb-modal-backdrop" onClick={() => setViewing(null)}>
-          <div className="nb-modal neubrutal-card" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ fontWeight: 900, fontSize: '1.3rem', color: 'var(--nb-ink)' }}>
-                  {viewing.tab === 'transcript' ? (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><DocumentIcon size={18} />Transcript</span>
-                  ) : (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><SparkleIcon size={18} />Summary</span>
-                  )}
-                </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {viewing.session.transcript ? (
-                  <button 
-                    className={`neubrutal-btn ${viewing.tab === 'transcript' ? 'btn-primary' : 'btn-ghost'}`} 
-                    onClick={() => setViewing({ session: viewing.session, tab: 'transcript' })}
-                    style={{ padding: '8px 16px' }}
-                  >
-                    Transcript
-                  </button>
-                ) : null}
-                {viewing.session.summary ? (
-                  <button 
-                    className={`neubrutal-btn ${viewing.tab === 'summary' ? 'btn-primary' : 'btn-ghost'}`} 
-                    onClick={() => setViewing({ session: viewing.session, tab: 'summary' })}
-                    style={{ padding: '8px 16px' }}
-                  >
-                    Summary
-                  </button>
-                ) : null}
-                <button className="neubrutal-btn" onClick={() => setViewing(null)} style={{ padding: '8px 16px' }}>
-                  Close
-                </button>
-              </div>
-            </div>
-            <div style={{ 
-              background: 'rgba(79,176,122,0.03)', 
-              padding: 20, 
-              borderRadius: 10, 
-              border: '3px solid rgba(79,176,122,0.1)',
-              maxHeight: '60vh',
-              overflowY: 'auto'
-            }}>
-              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'Rubik, sans-serif', lineHeight: 1.7, margin: 0, color: 'var(--nb-ink)' }}>
-                {viewing.tab === 'transcript' ? String(viewing.session.transcript || '(no transcript)') : String(viewing.session.summary || '(no summary)')}
-              </pre>
-            </div>
+        <Modal 
+          isOpen={true} 
+          onClose={() => setViewing(null)}
+          title={viewing.tab === 'transcript' ? 'Transcript' : 'Summary'}
+        >
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            {viewing.session.transcript ? (
+              <button 
+                className={`neubrutal-btn ${viewing.tab === 'transcript' ? 'btn-primary' : 'btn-ghost'}`} 
+                onClick={() => setViewing({ session: viewing.session, tab: 'transcript' })}
+                style={{ padding: '8px 16px' }}
+              >
+                Transcript
+              </button>
+            ) : null}
+            {viewing.session.summary ? (
+              <button 
+                className={`neubrutal-btn ${viewing.tab === 'summary' ? 'btn-primary' : 'btn-ghost'}`} 
+                onClick={() => setViewing({ session: viewing.session, tab: 'summary' })}
+                style={{ padding: '8px 16px' }}
+              >
+                Summary
+              </button>
+            ) : null}
           </div>
-        </div>
+          <div style={{ 
+            background: 'rgba(79,176,122,0.03)', 
+            padding: 20, 
+            borderRadius: 10, 
+            border: '3px solid rgba(79,176,122,0.1)',
+            maxHeight: '60vh',
+            overflowY: 'auto'
+          }}>
+            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'Rubik, sans-serif', lineHeight: 1.7, margin: 0, color: 'var(--nb-ink)' }}>
+              {viewing.tab === 'transcript' ? String(viewing.session.transcript || '(no transcript)') : String(viewing.session.summary || '(no summary)')}
+            </pre>
+          </div>
+        </Modal>
       ) : null}
     </div>
   );

@@ -44,18 +44,6 @@
 }
 .neubrutal-btn:hover { transform: translate(-2px,-2px); }
 
-.nb-modal-backdrop {
-  position: fixed; inset: 0; display:flex; align-items:center; justify-content:center;
-  background: rgba(0,0,0,0.5); z-index:50;
-}
-.nb-modal {
-  width: min(720px, 92%);
-  max-height: 80vh; overflow:auto;
-  padding: 18px; background: var(--nb-bg); color: var(--nb-ink);
-  border: 6px solid var(--nb-border); box-shadow: 12px 12px 0 rgba(0,0,0,0.9);
-  border-radius: 8px;
-}
-
 
 /* Cleaned: enforce ScribeAI pastel-green tokens and remove legacy neon styles */
 /* Neubrutalism-inspired font and UI tweaks */
@@ -104,25 +92,35 @@ body {
 .neubrutal-btn:hover { transform: translate(-2px,-2px); }
 
 .nb-modal-backdrop {
-  position: fixed; 
-  inset: 0; 
-  display: flex; 
-  align-items: center; 
-  justify-content: center;
-  z-index: 1000;
-  overflow-y: auto;
+  position: fixed !important; 
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  z-index: 9999 !important;
+  background: transparent !important;
+  pointer-events: none !important;
 }
+
 .nb-modal {
-  width: min(820px, 96%);
-  max-height: 86vh; 
-  overflow: auto;
+  position: relative !important;
+  width: 820px !important;
+  max-width: 90vw !important;
+  min-height: 200px;
+  max-height: 90vh;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 20px; 
-  background: #ffffff; 
+  background: #ffffff !important; 
   color: var(--nb-ink);
   border: 6px solid var(--nb-border); 
-  box-shadow: 14px 14px 0 rgba(11,61,43,0.95);
+  box-shadow: 14px 14px 0 rgba(11,61,43,0.95) !important;
   border-radius: 12px;
-  margin: auto;
+  pointer-events: auto !important;
+  filter: none !important;
+  margin: 0 !important;
+  cursor: default !important;
+  transform: none !important;
+  isolation: isolate !important;
 }
 
 .transcript-container {
@@ -377,14 +375,7 @@ body {
   animation: fadeIn 0.5s ease-out;
 }
 
-/* Modal animations */
-.nb-modal-backdrop {
-  animation: fadeIn 0.3s ease-out;
-}
-
-.nb-modal {
-  animation: slideUp 0.4s ease-out;
-}
+/* Modal animations removed to prevent flickering */
 
 /* Icon animations */
 .icon {

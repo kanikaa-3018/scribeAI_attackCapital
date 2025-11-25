@@ -59,56 +59,74 @@ export default function registerRecordingHandlers(io: Server) {
         console.log(`Saved chunk ${sequence} for session ${sid}, size ${buf.length} -> ${filename}`);
         
         // Real-time transcription for tab audio - transcribe each chunk as it arrives
-        // Only if we have AssemblyAI/Deepgram API keys configured
+        // Using AssemblyAI for consistency and speaker diarization support
         const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY || '';
-        const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || '';
         
         // Only transcribe if chunk has meaningful data (> 1KB) to avoid wasting API calls
-        if (DEEPGRAM_API_KEY && buf.length > 1000) {
+        if (ASSEMBLYAI_API_KEY && buf.length > 1000) {
           try {
-            // Use Deepgram directly for fastest real-time transcription (< 1 second typically)
-            const response = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true', {
+            // Upload to AssemblyAI
+            const uploadResponse = await fetch('https://api.assemblyai.com/v2/upload', {
               method: 'POST',
               headers: {
-                'Authorization': `Token ${DEEPGRAM_API_KEY}`,
-                'Content-Type': 'audio/webm'
+                'authorization': ASSEMBLYAI_API_KEY,
+                'Content-Type': 'application/octet-stream'
               },
               body: buf
             });
 
-            if (response.ok) {
-              const result = await response.json();
-              let chunkText = '';
-              
-              if (result && result.results && result.results.channels && result.results.channels[0]) {
-                const alternatives = result.results.channels[0].alternatives;
-                if (alternatives && alternatives[0]) {
-                  chunkText = alternatives[0].transcript || '';
+            const uploadData = await uploadResponse.json();
+            
+            if (uploadData.upload_url) {
+              // Submit transcription with speaker labels
+              const transcriptResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
+                method: 'POST',
+                headers: {
+                  'authorization': ASSEMBLYAI_API_KEY,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  audio_url: uploadData.upload_url,
+                  speaker_labels: true
+                })
+              });
+
+              const transcriptData = await transcriptResponse.json();
+              const transcriptId = transcriptData.id;
+
+              // Quick poll for fast chunks (max 10 seconds)
+              for (let attempt = 0; attempt < 10; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                const resultResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
+                  headers: { 'authorization': ASSEMBLYAI_API_KEY }
+                });
+
+                const result = await resultResponse.json();
+
+                if (result.status === 'completed') {
+                  let chunkText = '';
+                  
+                  // Use speaker-labeled utterances if available
+                  if (result.utterances && result.utterances.length > 0) {
+                    for (const utterance of result.utterances) {
+                      const speaker = utterance.speaker ? `Speaker ${utterance.speaker}` : 'Speaker';
+                      chunkText += `${speaker}: ${utterance.text}\n`;
+                    }
+                  } else {
+                    chunkText = result.text || '';
+                  }
+
+                  if (chunkText && chunkText.trim()) {
+                    socket.emit('transcriptUpdate', { text: chunkText, isChunk: true, sequence });
+                    console.log(`✅ Real-time chunk ${sequence} transcribed (${chunkText.length} chars): ${chunkText.slice(0, 80)}...`);
+                  }
+                  break;
+                } else if (result.status === 'error') {
+                  console.warn(`AssemblyAI error for chunk ${sequence}:`, result.error);
+                  break;
                 }
               }
-
-              if (chunkText && chunkText.trim()) {
-                socket.emit('transcriptUpdate', { text: chunkText, isChunk: true, sequence });
-                console.log(`✅ Real-time chunk ${sequence} transcribed (${chunkText.length} chars): ${chunkText.slice(0, 80)}...`);
-              }
-            } else {
-              console.warn(`Deepgram error for chunk ${sequence}:`, await response.text());
-            }
-          } catch (transcribeError) {
-            console.warn(`Real-time transcription failed for chunk ${sequence}:`, transcribeError);
-          }
-        } else if (ASSEMBLYAI_API_KEY && buf.length > 1000 && !DEEPGRAM_API_KEY) {
-          // Fallback to AssemblyAI if no Deepgram key (slower but still works)
-          try {
-            const { transcribeAudioChunks } = await import('../gemini.js');
-            const emitter = (partialTranscript: string, chunkNum: number) => {
-              socket.emit('transcriptUpdate', { text: partialTranscript, isChunk: true, sequence: chunkNum });
-            };
-            const chunkTranscript = await transcribeAudioChunks([filename], emitter);
-            
-            if (chunkTranscript && chunkTranscript.trim()) {
-              socket.emit('transcriptUpdate', { text: chunkTranscript, isChunk: true, sequence });
-              console.log(`Real-time transcription for chunk ${sequence}: ${chunkTranscript.slice(0, 100)}...`);
             }
           } catch (transcribeError) {
             console.warn(`Real-time transcription failed for chunk ${sequence}:`, transcribeError);
@@ -173,10 +191,13 @@ export default function registerRecordingHandlers(io: Server) {
         }
 
         const summaryObj: any = await generateSummary(fullTranscript || '');
-        // Normalize structured summary: { title, text, keywords }
+        // Normalize structured summary: { title, text, keywords, actionItems }
         const summaryText = summaryObj && typeof summaryObj === 'object' ? (summaryObj.text || '') : String(summaryObj || '');
         const summaryTitle = summaryObj && typeof summaryObj === 'object' ? (summaryObj.title || '') : '';
         const summaryKeywords = summaryObj && typeof summaryObj === 'object' && Array.isArray(summaryObj.keywords) ? summaryObj.keywords : [];
+        const actionItems = summaryObj && typeof summaryObj === 'object' && Array.isArray(summaryObj.actionItems) ? summaryObj.actionItems : [];
+        
+        console.log(`🎯 Extracted ${actionItems.length} action items from transcript`);
 
         // Write transcript file so it can be downloaded later
         let downloadUrl: string | null = null;
@@ -223,6 +244,7 @@ export default function registerRecordingHandlers(io: Server) {
               transcript: fullTranscript,
               summary: summaryText,
               keywords: summaryKeywords,
+              actionItems: actionItems,
               startedAt: new Date().toISOString(),
               endedAt: new Date().toISOString(),
               clientSessionId: sid,
@@ -260,8 +282,8 @@ export default function registerRecordingHandlers(io: Server) {
             }
             // Regardless of persistence result, emit sessionSaved so client receives the transcript and summary.
             try {
-              const sessObj = (json && json.session) ? json.session : { id: sid, title: (summaryTitle && String(summaryTitle).trim()) ? String(summaryTitle).trim() : `Session ${sid}`, downloadUrl, keywords: summaryKeywords };
-              socket.emit('sessionSaved', { session: sessObj, transcript: fullTranscript, summary: summaryText, downloadUrl, keywords: summaryKeywords });
+              const sessObj = (json && json.session) ? json.session : { id: sid, title: (summaryTitle && String(summaryTitle).trim()) ? String(summaryTitle).trim() : `Session ${sid}`, downloadUrl, keywords: summaryKeywords, actionItems };
+              socket.emit('sessionSaved', { session: sessObj, transcript: fullTranscript, summary: summaryText, downloadUrl, keywords: summaryKeywords, actionItems });
               socket.emit('transcriptUpdate', { text: fullTranscript });
             } catch (e) {
               console.warn('Could not emit sessionSaved to socket', e && (e as any).message ? (e as any).message : e);

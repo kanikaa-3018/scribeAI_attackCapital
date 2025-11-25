@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useReducer, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import ToastContainer, { emitToast } from './Toast';
+import Modal from './Modal';
 import { MicrophoneIcon, GlobeIcon, PlayIcon, PauseIcon, StopIcon, SaveIcon, WarningIcon, CheckIcon, SparkleIcon, DownloadIcon, VolumeIcon, InfoIcon, DocumentIcon } from './Icons';
 
 enum SessionStatus {
@@ -53,6 +54,7 @@ export default function RecordingPanel() {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [welcomeMessage, setWelcomeMessage] = useState<string | null>(null);
   const [isSummaryOpen, setIsSummaryOpen] = useState<boolean>(false);
+  const [isActionItemsOpen, setIsActionItemsOpen] = useState<boolean>(false);
   const [format, setFormat] = useState<'plain'|'md'|'srt'>('plain');
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
   const [previewContent, setPreviewContent] = useState<string>('');
@@ -60,6 +62,48 @@ export default function RecordingPanel() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState<number>(0);
   const [lastBlobSize, setLastBlobSize] = useState<number>(0);
+  const [actionItems, setActionItems] = useState<any[]>([]);
+  const [bookmarks, setBookmarks] = useState<Array<{ timestamp: number; text: string }>>([]);
+  const voiceCommandRecognitionRef = useRef<any | null>(null);
+  const [targetLanguage, setTargetLanguage] = useState<string>('none');
+  const [translatedTranscript, setTranslatedTranscript] = useState<string>('');
+  const [isTranslating, setIsTranslating] = useState<boolean>(false);
+  const translationTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auto-translate transcript when language changes or transcript updates
+  useEffect(() => {
+    if (targetLanguage === 'none' || !finalTranscript.trim()) {
+      setTranslatedTranscript('');
+      return;
+    }
+
+    // Debounce translation requests
+    if (translationTimerRef.current) {
+      clearTimeout(translationTimerRef.current);
+    }
+
+    translationTimerRef.current = setTimeout(async () => {
+      setIsTranslating(true);
+      try {
+        const response = await fetch('/api/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: finalTranscript,
+            targetLanguage: targetLanguage
+          })
+        });
+        const data = await response.json();
+        if (response.ok && data.translatedText) {
+          setTranslatedTranscript(data.translatedText);
+        }
+      } catch (error) {
+        console.error('Translation error:', error);
+      } finally {
+        setIsTranslating(false);
+      }
+    }, 1000); // Wait 1 second after last transcript update
+  }, [finalTranscript, targetLanguage]);
 
   // Return a combined transcript while avoiding simple duplication
   function getCombinedTranscript() {
@@ -182,7 +226,7 @@ export default function RecordingPanel() {
       else if (s === 'ERROR') dispatch({ type: 'ERROR' });
       else dispatch({ type: 'IDLE' });
     });
-    socket.on('sessionSaved', (payload: { session: any, transcript?: string, summary?: string, downloadUrl?: string }) => {
+    socket.on('sessionSaved', (payload: { session: any, transcript?: string, summary?: string, downloadUrl?: string, actionItems?: any[] }) => {
       console.log('sessionSaved event received:', payload && (payload.session ? payload.session.id : '(no session)'));
       const s = payload && payload.session;
       if (s) {
@@ -195,6 +239,12 @@ export default function RecordingPanel() {
         if (sum && String(sum).trim()) {
           setSummary(String(sum));
         }
+        // store action items
+        const items = payload.actionItems || s.actionItems || [];
+        if (Array.isArray(items) && items.length > 0) {
+          setActionItems(items);
+          emitToast(`✅ Extracted ${items.length} action items`, 'success');
+        }
         if (payload.downloadUrl || s.downloadUrl) {
           setDownloadUrl(String(payload.downloadUrl || s.downloadUrl));
         }
@@ -204,6 +254,7 @@ export default function RecordingPanel() {
       } else {
         // no session body; clear summary
         setSummary('');
+        setActionItems([]);
       }
     });
 
@@ -346,10 +397,124 @@ export default function RecordingPanel() {
     }
   }
 
+  // Voice command handler
+  function handleVoiceCommand(commandText: string) {
+    const text = commandText.toLowerCase();
+    console.log('🎯 Processing voice command:', text);
+    
+    try {
+      // Extract the command after "scribeai" or "scribe ai"
+      const scribeaiIndex = text.indexOf('scribeai') !== -1 ? text.indexOf('scribeai') + 8 : text.indexOf('scribe ai') + 9;
+      const command = text.slice(scribeaiIndex).trim();
+      
+      // Command: Mark as important / Create bookmark
+      if (command.includes('mark this as important') || command.includes('bookmark') || command.includes('mark important')) {
+        const timestamp = Date.now();
+        const currentText = getCombinedTranscript();
+        const recentText = currentText.split('\n').slice(-3).join(' ').slice(0, 100);
+        setBookmarks(prev => [...prev, { timestamp, text: recentText }]);
+        emitToast('⭐ Marked as important!', 'success');
+        console.log('✅ Created bookmark:', recentText);
+      }
+      
+      // Command: Create action item
+      else if (command.includes('create action item') || command.includes('add task') || command.includes('add action')) {
+        // Extract the action item description after the command
+        const actionMatch = command.match(/(?:create action item|add task|add action)[:\s]+(.+)/i);
+        const description = actionMatch ? actionMatch[1].trim() : 'Action item from voice command';
+        
+        const newActionItem = {
+          type: 'TASK',
+          description: description,
+          assignee: null,
+          deadline: null,
+          timestamp: new Date().toISOString()
+        };
+        
+        setActionItems(prev => [...prev, newActionItem]);
+        emitToast(`✅ Action item added: ${description}`, 'success');
+        console.log('✅ Created action item:', newActionItem);
+      }
+      
+      // Command: Summarize last N minutes
+      else if (command.includes('summarize')) {
+        const minutesMatch = command.match(/(\d+)\s*(?:minute|min)/);
+        const minutes = minutesMatch ? parseInt(minutesMatch[1]) : 5;
+        
+        emitToast(`📝 Summarizing last ${minutes} minutes...`, 'info');
+        
+        // Get recent transcript (approximate by taking last portion)
+        const fullText = getCombinedTranscript();
+        const recentText = fullText.split('\n').slice(-20).join('\n'); // Last ~20 lines
+        
+        // Call Gemini API for quick summary
+        fetch('/api/sessions/summarize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript: recentText, minutes })
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.summary) {
+              emitToast('📄 Quick summary generated!', 'success');
+              setSummary(prevSum => `Quick Summary (last ${minutes} min):\n${data.summary}\n\n---\n\n${prevSum}`);
+            }
+          })
+          .catch(err => {
+            console.warn('Failed to generate quick summary:', err);
+            emitToast('Failed to generate summary', 'error');
+          });
+      }
+      
+      // Command: Pause/Resume
+      else if (command.includes('pause')) {
+        if (status === SessionStatus.RECORDING) {
+          pauseRecording();
+          emitToast('⏸️ Paused by voice command', 'info');
+        }
+      }
+      else if (command.includes('resume') || command.includes('continue')) {
+        if (status === SessionStatus.PAUSED) {
+          resumeRecording();
+          emitToast('▶️ Resumed by voice command', 'success');
+        }
+      }
+      
+      // Command: Stop
+      else if (command.includes('stop recording') || command.includes('end session')) {
+        emitToast('⏹️ Stopping by voice command...', 'info');
+        stopRecording();
+      }
+      
+      // Unknown command
+      else {
+        console.log('❓ Unknown voice command:', command);
+        emitToast(`Voice command not recognized: "${command}"`, 'info');
+      }
+    } catch (err) {
+      console.error('Error processing voice command:', err);
+    }
+  }
+
   async function startRecording(inputType: "mic" | "tab" = "mic") {
     try {
       // remember requested input type for reconnect attempts
       inputTypeRef.current = inputType;
+      
+      // Check microphone permissions first
+      if (inputType === 'mic') {
+        try {
+          const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+          console.log('🎤 Microphone permission status:', permissionStatus.state);
+          if (permissionStatus.state === 'denied') {
+            emitToast('Microphone access denied. Please allow microphone in browser settings.', 'error');
+            return;
+          }
+        } catch (e) {
+          console.warn('Could not check microphone permissions', e);
+        }
+      }
+      
       const stream = await acquireStream(inputType, 2);
       currentStreamRef.current = stream;
       
@@ -514,8 +679,18 @@ export default function RecordingPanel() {
             let final = '';
             for (let i = ev.resultIndex; i < ev.results.length; ++i) {
               const r = ev.results[i];
-              if (r.isFinal) final += r[0].transcript;
-              else interim += r[0].transcript;
+              if (r.isFinal) {
+                final += r[0].transcript;
+                
+                // Check for voice commands in final transcript
+                const transcript = r[0].transcript.toLowerCase().trim();
+                if (transcript.includes('scribeai') || transcript.includes('scribe ai')) {
+                  console.log('🎤 Voice command detected:', transcript);
+                  handleVoiceCommand(transcript);
+                }
+              } else {
+                interim += r[0].transcript;
+              }
             }
             if (final && final.trim()) {
               setFinalTranscript((prev) => (prev ? prev + "\n" : "") + final.trim());
@@ -524,15 +699,30 @@ export default function RecordingPanel() {
               setInterimTranscript(interim.trim());
             }
           };
-          recog.onerror = (e: any) => console.warn('SpeechRecognition error', e);
+          recog.onerror = (e: any) => {
+            console.warn('SpeechRecognition error', e);
+            if (e.error === 'no-speech') {
+              console.log('No speech detected, continuing...');
+            }
+          };
           recog.onend = () => {
-            // don't auto-restart here; we'll stop on stopRecording
+            // Auto-restart if still recording (for continuous recognition)
+            if (status === SessionStatus.RECORDING) {
+              try {
+                console.log('SpeechRecognition ended, restarting...');
+                recog.start();
+              } catch (e) {
+                console.warn('Could not restart speech recognition', e);
+              }
+            }
           };
           recognitionRef.current = recog;
           recog.start();
+          console.log('✅ Speech recognition started for microphone');
         }
       } catch (e) {
         console.warn('SpeechRecognition start failed', e);
+        emitToast('Speech recognition unavailable in this browser', 'error');
       }
 
       const timeslice = inputType === 'tab' ? 3000 : 30000;
@@ -688,6 +878,7 @@ export default function RecordingPanel() {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
         recognitionRef.current = null;
+        console.log('Stopped speech recognition');
       }
     } catch (e) {
       console.warn('Error stopping SpeechRecognition', e);
@@ -774,6 +965,42 @@ export default function RecordingPanel() {
               ))}
             </select>
           )}
+
+          {/* Language Translation Selector */}
+          <select 
+            value={targetLanguage} 
+            onChange={(e) => setTargetLanguage(e.target.value)}
+            className="neubrutal-btn"
+            disabled={status === 'RECORDING' || status === 'PROCESSING'}
+            style={{
+              padding: '12px 16px',
+              minWidth: 220,
+              maxWidth: 400,
+              background: 'white',
+              border: '5px solid rgba(11,61,43,0.2)',
+              fontWeight: 700,
+              cursor: (status === 'RECORDING' || status === 'PROCESSING') ? 'not-allowed' : 'pointer',
+              opacity: (status === 'RECORDING' || status === 'PROCESSING') ? 0.5 : 1
+            }}
+            title="Translate transcript to another language"
+          >
+            <option value="none">🌍 No Translation</option>
+            <option value="es">🇪🇸 Spanish (Español)</option>
+            <option value="fr">🇫🇷 French (Français)</option>
+            <option value="de">🇩🇪 German (Deutsch)</option>
+            <option value="it">🇮🇹 Italian (Italiano)</option>
+            <option value="pt">🇵🇹 Portuguese (Português)</option>
+            <option value="ru">🇷🇺 Russian (Русский)</option>
+            <option value="zh">🇨🇳 Chinese (中文)</option>
+            <option value="ja">🇯🇵 Japanese (日本語)</option>
+            <option value="ko">🇰🇷 Korean (한국어)</option>
+            <option value="ar">🇸🇦 Arabic (العربية)</option>
+            <option value="hi">🇮🇳 Hindi (हिन्दी)</option>
+            <option value="nl">🇳🇱 Dutch (Nederlands)</option>
+            <option value="pl">🇵🇱 Polish (Polski)</option>
+            <option value="tr">🇹🇷 Turkish (Türkçe)</option>
+            <option value="vi">🇻🇳 Vietnamese (Tiếng Việt)</option>
+          </select>
 
           {/* Tab Share Test Button */}
           {inputType === 'tab' && (
@@ -1172,15 +1399,61 @@ export default function RecordingPanel() {
           background: 'rgba(79,176,122,0.02)'
         }}>
           {getCombinedTranscript() ? (
-            <div style={{ 
-              fontSize: '1.05rem',
-              lineHeight: 1.8,
-              color: 'var(--nb-ink)',
-              whiteSpace: 'pre-wrap',
-              fontFamily: 'Rubik, sans-serif'
-            }}>
-              {getCombinedTranscript()}
-            </div>
+            <>
+              {/* Original Transcript */}
+              <div style={{ 
+                fontSize: '1.05rem',
+                lineHeight: 1.5,
+                color: 'var(--nb-ink)',
+                whiteSpace: 'pre-wrap',
+                fontFamily: 'Rubik, sans-serif',
+                marginBottom: targetLanguage !== 'none' ? 12 : 0
+              }}>
+                {getCombinedTranscript()}
+              </div>
+              
+              {/* Translated Transcript */}
+              {targetLanguage !== 'none' && (
+                <div style={{
+                  borderTop: '2px solid rgba(79,176,122,0.2)',
+                  paddingTop: 12,
+                  marginTop: 8
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    marginBottom: 8,
+                    fontSize: '0.9rem',
+                    fontWeight: 800,
+                    color: 'var(--nb-accent)'
+                  }}>
+                    <GlobeIcon size={16} />
+                    <span>Translation</span>
+                    {isTranslating && (
+                      <div className="loading-spinner" style={{ 
+                        width: 12, 
+                        height: 12, 
+                        border: '2px solid rgba(79,176,122,0.2)', 
+                        borderTop: '2px solid var(--nb-accent)', 
+                        borderRadius: '50%',
+                        marginLeft: 4
+                      }} />
+                    )}
+                  </div>
+                  <div style={{ 
+                    fontSize: '1.05rem',
+                    lineHeight: 1.5,
+                    color: 'rgba(11,47,33,0.8)',
+                    whiteSpace: 'pre-wrap',
+                    fontFamily: 'Rubik, sans-serif',
+                    fontStyle: translatedTranscript ? 'normal' : 'italic'
+                  }}>
+                    {translatedTranscript || 'Translating...'}
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div style={{ 
               textAlign: 'center',
@@ -1197,7 +1470,7 @@ export default function RecordingPanel() {
         </div>
 
         {/* Summary & Download Actions - Below Transcript */}
-        {(summary || downloadUrl) && (
+        {(summary || downloadUrl || actionItems.length > 0) && (
           <div style={{ 
             padding: '24px 28px',
             background: 'rgba(79,176,122,0.03)',
@@ -1226,6 +1499,27 @@ export default function RecordingPanel() {
                 <span>View AI Summary</span>
               </button>
             )}
+            {actionItems.length > 0 && (
+                <button 
+                onClick={() => setIsActionItemsOpen(true)} 
+                className="neubrutal-btn"
+                style={{
+                  padding: '16px 32px',
+                  background: 'linear-gradient(135deg, #4fb07a 0%, #37a169 100%)',
+                  color: 'white',
+                  fontWeight: 900,
+                  fontSize: '1.05rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12
+                }}
+              >
+                <svg style={{ width: 20, height: 20 }} viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                </svg>
+                <span>Action Items ({actionItems.length})</span>
+              </button>
+            )}
             {downloadUrl && (
               <a 
                 className="neubrutal-btn" 
@@ -1234,7 +1528,7 @@ export default function RecordingPanel() {
                 rel="noopener noreferrer"
                 style={{
                   padding: '16px 32px',
-                  background: 'linear-gradient(135deg, #4fb07a 0%, #37a169 100%)',
+                  background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                   color: 'white',
                   fontWeight: 900,
                   fontSize: '1.05rem',
@@ -1248,40 +1542,211 @@ export default function RecordingPanel() {
                 <span>Download Transcript</span>
               </a>
             )}
+            {status === 'COMPLETED' && (
+              <button
+                className="neubrutal-btn"
+                onClick={() => {
+                  setFinalTranscript('');
+                  setInterimTranscript('');
+                  setSummary('');
+                  setSessionTitle('');
+                  setDownloadUrl(null);
+                  setActionItems([]);
+                  setBookmarks([]);
+                  setIsSummaryOpen(false);
+                  setIsActionItemsOpen(false);
+                  sessionIdRef.current = null;
+                  sequenceRef.current = 0;
+                  dispatch({ type: 'IDLE' });
+                  emitToast('Ready for new recording', 'info');
+                }}
+                style={{
+                  padding: '16px 32px',
+                  background: '#fff',
+                  color: 'var(--nb-ink)',
+                  fontWeight: 900,
+                  fontSize: '1.05rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12
+                }}
+              >
+                <span>New Recording</span>
+              </button>
+            )}
           </div>
         )}
       </div>
+
+      {/* Bookmarks Panel */}
+      {bookmarks.length > 0 && (
+        <div className="neubrutal-card" style={{
+          padding: 0,
+          background: 'white',
+          border: '5px solid var(--nb-border)',
+          boxShadow: '6px 6px 0 rgba(11,61,43,0.9)',
+          overflow: 'hidden'
+        }}>
+          <div style={{ 
+            padding: '20px 28px',
+            background: 'linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(251,191,36,0.08) 100%)',
+            borderBottom: '4px solid rgba(245,158,11,0.3)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ fontSize: '1.5rem' }}>⭐</div>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: '1.2rem', color: 'var(--nb-ink)' }}>
+                  Important Moments ({bookmarks.length})
+                </div>
+                <div style={{ fontSize: 13, color: 'rgba(11,47,33,0.6)', marginTop: 2 }}>
+                  Created via voice command
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ padding: 28 }}>
+            {bookmarks.map((bookmark, idx) => (
+              <div 
+                key={idx} 
+                style={{ 
+                  marginBottom: 12, 
+                  padding: 16,
+                  background: 'rgba(251,191,36,0.08)',
+                  border: '3px solid rgba(251,191,36,0.25)',
+                  borderRadius: 10
+                }}
+              >
+                <div style={{ fontSize: 12, color: 'rgba(11,47,33,0.5)', marginBottom: 6, fontWeight: 700 }}>
+                  {new Date(bookmark.timestamp).toLocaleTimeString()}
+                </div>
+                <div style={{ fontSize: '0.95rem', color: 'var(--nb-ink)' }}>
+                  {bookmark.text}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Voice Commands Help */}
+      {status === 'RECORDING' && (
+        <div className="neubrutal-card" style={{
+          padding: 24,
+          background: 'linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%)',
+          border: '4px solid #3b82f6',
+          boxShadow: '5px 5px 0 rgba(59,130,246,0.5)'
+        }}>
+          <div style={{ fontWeight: 900, fontSize: '1.1rem', color: '#1e40af', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: '1.5rem' }}>🎤</span>
+            <span>Voice Commands Active</span>
+          </div>
+          <div style={{ fontSize: 14, color: '#1e3a8a', lineHeight: 1.7 }}>
+            <div style={{ marginBottom: 8 }}>Say <strong>"ScribeAI"</strong> followed by:</div>
+            <ul style={{ margin: 0, paddingLeft: 24 }}>
+              <li><strong>"mark this as important"</strong> - Create bookmark</li>
+              <li><strong>"create action item: [description]"</strong> - Add task</li>
+              <li><strong>"summarize last 5 minutes"</strong> - Quick summary</li>
+              <li><strong>"pause"</strong> / <strong>"resume"</strong> - Control recording</li>
+              <li><strong>"stop recording"</strong> - End session</li>
+            </ul>
+          </div>
+        </div>
+      )}
 
       {/* Toasts */}
       <ToastContainer />
 
       {/* Summary Modal */}
-      {isSummaryOpen && (
-        <div className="nb-modal-backdrop" onClick={() => setIsSummaryOpen(false)}>
-          <div className="nb-modal neubrutal-card" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <div style={{ fontWeight: 900, fontSize: '1.2rem' }}>{sessionTitle || 'Session Summary'}</div>
-              <button className="neubrutal-btn" onClick={() => setIsSummaryOpen(false)}>Close</button>
+      <Modal 
+        isOpen={isSummaryOpen} 
+        onClose={() => setIsSummaryOpen(false)}
+        title={sessionTitle || 'Session Summary'}
+      >
+        <div style={{ lineHeight: 1.4, fontSize: '0.95rem', userSelect: 'text' }} dangerouslySetInnerHTML={{ 
+          __html: summary
+            .replace(/Title: (.+)/g, '<div style="font-size: 1.15rem; font-weight: 900; color: var(--nb-accent); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 2px solid rgba(79,176,122,0.2);">$1</div>')
+            .replace(/Bullets:/g, '<div style="font-weight: 800; font-size: 0.95rem; margin-top: 10px; margin-bottom: 6px; color: var(--nb-ink);">Key Points:</div>')
+            .replace(/Action Items:/g, '<div style="font-weight: 800; font-size: 0.95rem; margin-top: 12px; margin-bottom: 6px; color: #f59e0b;">Action Items:</div>')
+            .replace(/^- (.+)$/gm, '<li style="margin-left: 16px; margin-bottom: 4px; line-height: 1.4;">$1</li>')
+            .replace(/(<li[^>]*>.*<\/li>)/gs, '<ul style="list-style-type: disc; padding-left: 20px; margin: 6px 0;">$1</ul>')
+            .replace(/<\/ul>\s*<ul[^>]*>/g, '')
+            .replace(/TASK: (.+?)(?=TASK:|DECISION:|QUESTION:|$)/gs, '<div style="padding: 8px 10px; background: rgba(79,176,122,0.08); border-left: 3px solid #4fb07a; margin: 6px 0; border-radius: 4px; line-height: 1.4;"><strong style="color: #4fb07a; font-size: 0.85rem;">TASK:</strong> <span style="color: var(--nb-ink);">$1</span></div>')
+            .replace(/DECISION: (.+?)(?=TASK:|DECISION:|QUESTION:|$)/gs, '<div style="padding: 8px 10px; background: rgba(59,130,246,0.08); border-left: 3px solid #3b82f6; margin: 6px 0; border-radius: 4px; line-height: 1.4;"><strong style="color: #3b82f6; font-size: 0.85rem;">DECISION:</strong> <span style="color: var(--nb-ink);">$1</span></div>')
+            .replace(/QUESTION: (.+?)(?=TASK:|DECISION:|QUESTION:|$)/gs, '<div style="padding: 8px 10px; background: rgba(251,191,36,0.08); border-left: 3px solid #fbbf24; margin: 6px 0; border-radius: 4px; line-height: 1.4;"><strong style="color: #fbbf24; font-size: 0.85rem;">QUESTION:</strong> <span style="color: var(--nb-ink);">$1</span></div>')
+            .replace(/@(\w+)/g, '<strong style="color: var(--nb-accent); background: rgba(79,176,122,0.1); padding: 2px 5px; border-radius: 3px;">@$1</strong>')
+            .replace(/\[Due: ([^\]]+)\]/g, '<strong style="color: #dc2626; background: rgba(220,38,38,0.1); padding: 2px 6px; border-radius: 3px;">Due: $1</strong>')
+            .replace(/\n/g, '<br/>')
+        }} />
+      </Modal>
+
+      {/* Action Items Modal */}
+      <Modal
+        isOpen={isActionItemsOpen}
+        onClose={() => setIsActionItemsOpen(false)}
+        title={`Action Items (${actionItems.length})`}
+        maxWidth={900}
+      >
+        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+          {actionItems.map((item, idx) => (
+            <div 
+              key={idx} 
+              style={{ 
+                marginBottom: 12, 
+                padding: 14,
+                background: item.type === 'TASK' ? 'rgba(79,176,122,0.05)' : 
+                           item.type === 'DECISION' ? 'rgba(59,130,246,0.05)' : 
+                           'rgba(251,191,36,0.05)',
+                border: `4px solid ${item.type === 'TASK' ? 'rgba(79,176,122,0.2)' : item.type === 'DECISION' ? 'rgba(59,130,246,0.2)' : 'rgba(251,191,36,0.2)'}`,
+                borderRadius: 10
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ 
+                  marginTop: 1,
+                  padding: '4px 10px',
+                  background: item.type === 'TASK' ? '#4fb07a' : item.type === 'DECISION' ? '#3b82f6' : '#fbbf24',
+                  color: 'white',
+                  borderRadius: 4,
+                  fontWeight: 800,
+                  fontSize: 10,
+                  border: '2px solid var(--nb-border)'
+                    }}>
+                      {item.type}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--nb-ink)', marginBottom: 4 }}>
+                        {item.description}
+                      </div>
+                      {(item.assignee || item.deadline) && (
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12, color: 'rgba(11,47,33,0.7)' }}>
+                          {item.assignee && (
+                            <span style={{ fontWeight: 700 }}>
+                              @{item.assignee}
+                            </span>
+                          )}
+                          {item.deadline && (
+                            <span style={{ fontWeight: 700, color: '#dc2626' }}>
+                              Due: {item.deadline}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{summary}</pre>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Preview Modal */}
-      {isPreviewOpen && (
-        <div className="nb-modal-backdrop" onClick={() => setIsPreviewOpen(false)}>
-          <div className="nb-modal neubrutal-card" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <div style={{ fontWeight: 800 }}>Preview ({format})</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="neubrutal-btn btn-ghost" onClick={() => setIsPreviewOpen(false)}>Close</button>
-              </div>
-            </div>
-            <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{previewContent}</pre>
-          </div>
-        </div>
-      )}
+      <Modal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        title={`Preview (${format})`}
+      >
+        <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{previewContent}</pre>
+      </Modal>
     </div>
   );
 }
