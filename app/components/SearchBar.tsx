@@ -60,7 +60,7 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, placeholder = 'Search t
         top: '50%',
         transform: 'translateY(-50%)',
         color: 'rgba(11,47,33,0.4)',
-        pointerEvents: 'none'rchbar
+        pointerEvents: 'none'
       }}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
           <circle cx="11" cy="11" r="8"/>
