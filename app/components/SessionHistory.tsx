@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { DocumentIcon, MicrophoneIcon, SparkleIcon, TrashIcon, WarningIcon } from './Icons';
 import { io } from "socket.io-client";
 import Modal from './Modal';
+import SearchBar from './SearchBar';
 
 type SessionItem = {
   id: string;
@@ -15,8 +16,34 @@ type SessionItem = {
   ownerEmail?: string;
 };
 
+function highlightText(text: string, query: string) {
+  if (!query.trim() || !text) return text;
+  
+  const parts = text.split(new RegExp(`(${query})`, 'gi'));
+  return (
+    <>
+      {parts.map((part, i) => 
+        part.toLowerCase() === query.toLowerCase() ? (
+          <mark key={i} style={{ 
+            background: '#fff59d', 
+            padding: '2px 4px', 
+            borderRadius: '3px',
+            fontWeight: 700 
+          }}>
+            {part}
+          </mark>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
+}
+
 export default function SessionHistory() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [allSessions, setAllSessions] = useState<SessionItem[]>([]);
+  const [filteredSessions, setFilteredSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<any>(null);
@@ -25,6 +52,8 @@ export default function SessionHistory() {
   const [total, setTotal] = useState<number | null>(null);
   const [viewing, setViewing] = useState<{ session: SessionItem | null; tab: 'transcript' | 'summary' } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
 
   const handleDelete = async (sessionId: string) => {
     if (!confirm('Delete this session? This cannot be undone.')) return;
@@ -101,20 +130,89 @@ export default function SessionHistory() {
     return () => { mounted = false; };
   }, [page, pageSize]);
 
+  // Filter sessions based on search
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredSessions(sessions);
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+
+    // Search across all sessions, not just current page
+    const searchAllSessions = async () => {
+      try {
+        // Fetch all sessions if not already loaded
+        if (allSessions.length === 0) {
+          const res = await fetch(`/api/sessions?page=1&pageSize=1000`);
+          const data = await res.json();
+          const items = data && data.sessions ? data.sessions : [];
+          setAllSessions(items);
+          
+          // Now filter
+          const query = searchQuery.toLowerCase();
+          const filtered = items.filter((s: SessionItem) => {
+            if (s.title && s.title.toLowerCase().includes(query)) return true;
+            if (s.transcript && s.transcript.toLowerCase().includes(query)) return true;
+            if (s.summary && s.summary.toLowerCase().includes(query)) return true;
+            return false;
+          });
+          setFilteredSessions(filtered);
+        } else {
+          // Filter from cached all sessions
+          const query = searchQuery.toLowerCase();
+          const filtered = allSessions.filter((s: SessionItem) => {
+            if (s.title && s.title.toLowerCase().includes(query)) return true;
+            if (s.transcript && s.transcript.toLowerCase().includes(query)) return true;
+            if (s.summary && s.summary.toLowerCase().includes(query)) return true;
+            return false;
+          });
+          setFilteredSessions(filtered);
+        }
+      } catch (e) {
+        console.error('Search error:', e);
+        // Fallback to searching current page only
+        const query = searchQuery.toLowerCase();
+        const filtered = sessions.filter(s => {
+          if (s.title && s.title.toLowerCase().includes(query)) return true;
+          if (s.transcript && s.transcript.toLowerCase().includes(query)) return true;
+          if (s.summary && s.summary.toLowerCase().includes(query)) return true;
+          return false;
+        });
+        setFilteredSessions(filtered);
+      }
+    };
+
+    searchAllSessions();
+  }, [searchQuery, sessions, allSessions]);
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+  };
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: 12, 
         marginBottom: 24,
-        padding: '12px 16px',
+        padding: '16px 20px',
         background: 'linear-gradient(135deg, rgba(79,176,122,0.08) 0%, rgba(79,176,122,0.02) 100%)',
         borderRadius: 12,
         border: '3px solid rgba(79,176,122,0.2)'
       }}>
-        <div style={{ color: 'var(--nb-accent)' }}><DocumentIcon size={24} /></div>
-        <div className="transcript-title heading-live" style={{ fontSize: '1.2rem', margin: 0 }}>SESSION HISTORY</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+            <div style={{ color: 'var(--nb-accent)' }}><DocumentIcon size={24} /></div>
+            <div className="transcript-title heading-live" style={{ fontSize: '1.2rem', margin: 0 }}>SESSION HISTORY</div>
+          </div>
+          
+          {/* Search Bar - right beside title */}
+          {!loading && sessions.length > 0 && (
+            <div style={{ flex: 1, maxWidth: '280px' }}>
+              <SearchBar onSearch={handleSearch} placeholder="Search..." />
+            </div>
+          )}
+        </div>
       </div>
 
       {loading && sessions.length === 0 ? (
@@ -140,8 +238,23 @@ export default function SessionHistory() {
         </div>
       ) : null}
 
+      {!loading && filteredSessions.length === 0 && searchQuery ? (
+        <div className="neubrutal-card" style={{ padding: 24, textAlign: 'center', background: 'rgba(79,176,122,0.03)' }}>
+          <div style={{ marginBottom: 8, color: 'rgba(11,47,33,0.4)' }}>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.35-4.35"/>
+            </svg>
+          </div>
+          <div className="text-sm muted" style={{ fontWeight: 600 }}>No matches found</div>
+          <div style={{ fontSize: 12, color: 'rgba(11,47,33,0.6)', marginTop: 6 }}>
+            Try a different search term
+          </div>
+        </div>
+      ) : null}
+
       <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
-        {sessions.map((s, idx) => (
+        {filteredSessions.map((s, idx) => (
           <li 
             key={s.id} 
             className="history-item neubrutal-card" 
@@ -186,7 +299,7 @@ export default function SessionHistory() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
                 <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--nb-ink)' }}>
-                  {sanitizeTitle(s.title) || getSessionTitle(s)}
+                  {searchQuery ? highlightText(sanitizeTitle(s.title) || getSessionTitle(s), searchQuery) : (sanitizeTitle(s.title) || getSessionTitle(s))}
                 </div>
                 <span 
                   className="chip" 
@@ -208,7 +321,7 @@ export default function SessionHistory() {
               </div>
               
               <div style={{ fontSize: 13, color: 'rgba(11,47,33,0.7)', lineHeight: 1.4 }}>
-                {getExcerpt(s)}
+                {searchQuery ? highlightText(getExcerpt(s), searchQuery) : getExcerpt(s)}
               </div>
 
               {/* Actions */}
@@ -254,46 +367,64 @@ export default function SessionHistory() {
         ))}
       </ul>
 
-      <div style={{ 
-        marginTop: 16, 
-        display: 'flex', 
-        gap: 12, 
-        alignItems: 'center', 
-        justifyContent: 'space-between',
-        padding: '12px 0',
-        borderTop: '3px solid rgba(79,176,122,0.1)'
-      }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button 
-            className="neubrutal-btn btn-ghost" 
-            onClick={() => setPage((p) => Math.max(1, p - 1))} 
-            disabled={page <= 1} 
-            aria-label="Previous page"
-            style={{ padding: 8, minWidth: 40 }}
-          > 
-            <svg style={{ width: 20, height: 20 }} viewBox="0 0 24 24" fill="currentColor">
-              <path d="M15 18l-6-6 6-6"/>
-            </svg>
-          </button>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--nb-ink)' }}>
-            Page {page}{total ? ` of ${Math.ceil(total / pageSize)}` : ''}
+      {/* Pagination - hide when searching */}
+      {!isSearching && (
+        <div style={{ 
+          marginTop: 16, 
+          display: 'flex', 
+          gap: 12, 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          padding: '12px 0',
+          borderTop: '3px solid rgba(79,176,122,0.1)'
+        }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button 
+              className="neubrutal-btn btn-ghost" 
+              onClick={() => setPage((p) => Math.max(1, p - 1))} 
+              disabled={page <= 1} 
+              aria-label="Previous page"
+              style={{ padding: 8, minWidth: 40 }}
+            > 
+              <svg style={{ width: 20, height: 20 }} viewBox="0 0 24 24" fill="currentColor">
+                <path d="M15 18l-6-6 6-6"/>
+              </svg>
+            </button>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--nb-ink)' }}>
+              Page {page}{total ? ` of ${Math.ceil(total / pageSize)}` : ''}
+            </div>
+            <button 
+              className="neubrutal-btn btn-ghost" 
+              onClick={() => setPage((p) => p + 1)} 
+              disabled={total !== null && page * pageSize >= total} 
+              aria-label="Next page"
+              style={{ padding: 8, minWidth: 40 }}
+            >
+              <svg style={{ width: 20, height: 20 }} viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 6l6 6-6 6"/>
+              </svg>
+            </button>
           </div>
-          <button 
-            className="neubrutal-btn btn-ghost" 
-            onClick={() => setPage((p) => p + 1)} 
-            disabled={total !== null && page * pageSize >= total} 
-            aria-label="Next page"
-            style={{ padding: 8, minWidth: 40 }}
-          >
-            <svg style={{ width: 20, height: 20 }} viewBox="0 0 24 24" fill="currentColor">
-              <path d="M9 6l6 6-6 6"/>
-            </svg>
-          </button>
+          {loading ? (
+            <div style={{ fontSize: 11, color: 'rgba(11,47,33,0.5)' }}>Loading…</div>
+          ) : null}
         </div>
-        {loading ? (
-          <div style={{ fontSize: 11, color: 'rgba(11,47,33,0.5)' }}>Loading…</div>
-        ) : null}
-      </div>
+      )}
+      
+      {/* Show result count when searching */}
+      {isSearching && (
+        <div style={{ 
+          marginTop: 16,
+          padding: '12px 0',
+          borderTop: '3px solid rgba(79,176,122,0.1)',
+          textAlign: 'center',
+          fontSize: 12,
+          fontWeight: 700,
+          color: 'var(--nb-ink)'
+        }}>
+          {filteredSessions.length} result{filteredSessions.length !== 1 ? 's' : ''} found
+        </div>
+      )}
 
       {viewing && viewing.session ? (
         <Modal 

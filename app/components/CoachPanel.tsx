@@ -22,13 +22,6 @@ const CoachPanel: React.FC<CoachPanelProps> = ({ feedbackHistory, currentFeedbac
   // Filter out 'none' types for display
   const relevantFeedback = feedbackHistory.filter(f => f.type !== 'none');
 
-  // Debug
-  console.log('CoachPanel:', { 
-    historyLength: feedbackHistory.length, 
-    relevantLength: relevantFeedback.length,
-    currentType: currentFeedback?.type 
-  });
-
   if (relevantFeedback.length === 0 && (!currentFeedback || currentFeedback.type === 'none')) {
     return null;
   }
