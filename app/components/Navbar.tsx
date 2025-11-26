@@ -69,6 +69,7 @@ export default function Navbar() {
       <div className="nav-center">
         <nav className="nav-pills" role="navigation" aria-label="Main">
           <Link className="nav-pill" href="/dashboard">Dashboard</Link>
+          <Link className="nav-pill" href="/minutes">Minutes</Link>
           <div className="nav-pill tools-pill" ref={toolsRef}>
             <button className="tools-toggle" onClick={() => setToolsOpen(v => !v)} aria-expanded={toolsOpen}>Tools <span className="caret">▾</span></button>
             {toolsOpen && (
