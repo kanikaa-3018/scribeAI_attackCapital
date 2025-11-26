@@ -3,8 +3,6 @@ import fs from 'fs';
 import path from 'path';
 import { generateSummary } from '../gemini.js';
 
-// Use CommonJS-compatible __dirname (tsconfig.server.json uses "module": "CommonJS")
-// Point to project root recordings folder, not dist
 const recordingsRoot = path.resolve(__dirname, '..', '..', '..', 'recordings');
 if (!fs.existsSync(recordingsRoot)) fs.mkdirSync(recordingsRoot, { recursive: true });
 
@@ -13,7 +11,7 @@ export default function registerRecordingHandlers(io: Server) {
   const socketSession = new Map<string, string>();
 
   io.on("connection", (socket: Socket) => {
-    // Emit a welcome event that clients can display as a placeholder
+    
     socket.emit("welcome", { message: "Welcome from Socket Server — real-time transcript will appear here." });
 
     socket.on("ping", () => {
@@ -25,9 +23,9 @@ export default function registerRecordingHandlers(io: Server) {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       sessions.set(sessionId, { dir, chunks: [] });
       socketSession.set(socket.id, sessionId);
-      // @ts-ignore
+      
       (socket as any).data = (socket as any).data || {};
-      // @ts-ignore
+      
       (socket as any).data.sessionId = sessionId;
       socket.emit('statusChange', { status: 'RECORDING' });
       console.log(`Started session ${sessionId}, recordings dir: ${dir}`);
@@ -36,9 +34,9 @@ export default function registerRecordingHandlers(io: Server) {
     socket.on("audioChunk", async (sessionId: string, chunk: ArrayBuffer, sequence: number) => {
       try {
         const buf = Buffer.from(chunk);
-        // Resolve sessionId: prefer explicit, else socket-bound
+        
         let sid = sessionId;
-        // @ts-ignore
+        
         const socketData = (socket as any).data || {};
         if (!sid || !sessions.has(sid)) {
           sid = socketData && socketData.sessionId ? socketData.sessionId : socketSession.get(socket.id) as string;
@@ -51,9 +49,9 @@ export default function registerRecordingHandlers(io: Server) {
         info.chunks.push(filename);
         sessions.set(sid, info);
         socketSession.set(socket.id, sid);
-        // @ts-ignore
+     
         (socket as any).data = (socket as any).data || {};
-        // @ts-ignore
+        
         (socket as any).data.sessionId = sid;
         
         console.log(`Saved chunk ${sequence} for session ${sid}, size ${buf.length} -> ${filename}`);
@@ -140,7 +138,7 @@ export default function registerRecordingHandlers(io: Server) {
 
     socket.on("stopSession", async (sessionId: string, clientTranscript?: string, ownerEmail?: string) => {
       socket.emit('statusChange', { status: 'PROCESSING' });
-      // Resolve session id if needed
+
       let sid = sessionId;
       // @ts-ignore
       const socketData = (socket as any).data || {};
@@ -148,11 +146,10 @@ export default function registerRecordingHandlers(io: Server) {
       const info = sessions.get(sid as string);
       console.log(`Stopping session ${sid}. ${info ? info.chunks.length : 0} chunks recorded. clientTranscriptLength=${clientTranscript ? String(clientTranscript).length : 0}`);
       try {
-        // If there are no saved chunks but the client provided a transcript,
-        // still proceed to generate a summary and persist the session using the client transcript.
+
         if (!info || !info.chunks || info.chunks.length === 0) {
           if (clientTranscript && String(clientTranscript).trim()) {
-            // proceed but set fullTranscript from clientTranscript below
+
           } else {
             socket.emit('statusChange', { status: 'COMPLETED' });
             return;

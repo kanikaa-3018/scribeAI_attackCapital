@@ -5,6 +5,7 @@ import { io, Socket } from "socket.io-client";
 import ToastContainer, { emitToast } from './Toast';
 import Modal from './Modal';
 import SentimentPanel from './SentimentPanel';
+import CoachPanel from './CoachPanel';
 import { MicrophoneIcon, GlobeIcon, PlayIcon, PauseIcon, StopIcon, SaveIcon, WarningIcon, CheckIcon, SparkleIcon, DownloadIcon, VolumeIcon, InfoIcon, DocumentIcon } from './Icons';
 
 enum SessionStatus {
@@ -76,6 +77,12 @@ export default function RecordingPanel() {
   const [currentSentiment, setCurrentSentiment] = useState<{ sentiment: string; score: number } | null>(null);
   const sentimentTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // AI Meeting Coach states
+  const [coachFeedbackHistory, setCoachFeedbackHistory] = useState<Array<{ timestamp: number; type: 'none' | 'long_speech' | 'rambling' | 'repetition' | 'filler_words'; severity: 'low' | 'medium' | 'high'; suggestion: string; details: string }>>([]);
+  const [currentCoachFeedback, setCurrentCoachFeedback] = useState<{ timestamp: number; type: 'none' | 'long_speech' | 'rambling' | 'repetition' | 'filler_words'; severity: 'low' | 'medium' | 'high'; suggestion: string; details: string } | null>(null);
+  const coachTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const speechStartTimeRef = useRef<number | null>(null);
+
   // Auto-translate transcript when language changes or transcript updates
   useEffect(() => {
     if (targetLanguage === 'none' || !finalTranscript.trim()) {
@@ -113,7 +120,7 @@ export default function RecordingPanel() {
 
   // Sentiment Analysis - analyze transcript periodically
   useEffect(() => {
-    if (status !== 'RECORDING' || !finalTranscript.trim()) {
+    if (status !== SessionStatus.RECORDING || !finalTranscript.trim()) {
       return;
     }
 
@@ -146,6 +153,66 @@ export default function RecordingPanel() {
         console.error('Sentiment analysis error:', error);
       }
     }, 3000); // Analyze every 3 seconds
+  }, [finalTranscript, status]);
+
+  // AI Meeting Coach - analyze speech patterns periodically
+  useEffect(() => {
+    if (status !== SessionStatus.RECORDING || !finalTranscript.trim()) {
+      if (speechStartTimeRef.current !== null) {
+        speechStartTimeRef.current = null;
+      }
+      return;
+    }
+
+    // Track when continuous speech started
+    if (speechStartTimeRef.current === null) {
+      speechStartTimeRef.current = Date.now();
+    }
+
+    // Debounce coach analysis
+    if (coachTimerRef.current) {
+      clearTimeout(coachTimerRef.current);
+    }
+
+    coachTimerRef.current = setTimeout(async () => {
+      try {
+        const duration = speechStartTimeRef.current ? (Date.now() - speechStartTimeRef.current) / 1000 : 0;
+        
+        // Analyze last 300 characters for coaching feedback
+        const recentText = finalTranscript.slice(-300);
+        
+        const response = await fetch('/api/coach', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: recentText, duration })
+        });
+        const data = await response.json();
+        
+        if (response.ok && data.type) {
+          const timestamp = Date.now();
+          setCurrentCoachFeedback({
+            timestamp,
+            type: data.type,
+            severity: data.severity,
+            suggestion: data.suggestion,
+            details: data.details
+          });
+          
+          // Only add to history if not "none"
+          if (data.type !== 'none') {
+            setCoachFeedbackHistory(prev => [...prev, {
+              timestamp,
+              type: data.type,
+              severity: data.severity,
+              suggestion: data.suggestion,
+              details: data.details
+            }]);
+          }
+        }
+      } catch (error) {
+        console.error('Coach analysis error:', error);
+      }
+    }, 5000); // Analyze every 5 seconds
   }, [finalTranscript, status]);
 
   // Return a combined transcript while avoiding simple duplication
@@ -1637,6 +1704,8 @@ export default function RecordingPanel() {
                   setIsActionItemsOpen(false);
                   setSentimentHistory([]);
                   setCurrentSentiment(null);
+                  setCoachFeedbackHistory([]);
+                  setCurrentCoachFeedback(null);
                   sessionIdRef.current = null;
                   sequenceRef.current = 0;
                   dispatch({ type: 'IDLE' });
@@ -1662,6 +1731,9 @@ export default function RecordingPanel() {
 
       {/* Sentiment Analysis Panel */}
       <SentimentPanel sentimentHistory={sentimentHistory} currentSentiment={currentSentiment} />
+
+      {/* AI Meeting Coach Panel */}
+      <CoachPanel feedbackHistory={coachFeedbackHistory} currentFeedback={currentCoachFeedback} />
 
       {/* Bookmarks Panel */}
       {bookmarks.length > 0 && (
