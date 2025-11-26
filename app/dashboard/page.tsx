@@ -15,7 +15,7 @@ export default function DashboardPage() {
           </p>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-16">
           <section className="lg:col-span-2 neubrutal-card p-6 relative overflow-hidden" style={{ background: 'white' }}>
             <div style={{ position: 'absolute', top: -20, right: -20, width: 150, height: 150, background: 'radial-gradient(circle, rgba(79,176,122,0.1) 0%, transparent 70%)', borderRadius: '50%', pointerEvents: 'none' }} />
             <RecordingPanel />

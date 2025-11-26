@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useReducer, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import ToastContainer, { emitToast } from './Toast';
 import Modal from './Modal';
+import SentimentPanel from './SentimentPanel';
 import { MicrophoneIcon, GlobeIcon, PlayIcon, PauseIcon, StopIcon, SaveIcon, WarningIcon, CheckIcon, SparkleIcon, DownloadIcon, VolumeIcon, InfoIcon, DocumentIcon } from './Icons';
 
 enum SessionStatus {
@@ -69,6 +70,11 @@ export default function RecordingPanel() {
   const [translatedTranscript, setTranslatedTranscript] = useState<string>('');
   const [isTranslating, setIsTranslating] = useState<boolean>(false);
   const translationTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Sentiment Analysis states
+  const [sentimentHistory, setSentimentHistory] = useState<Array<{ timestamp: number; sentiment: string; score: number; text: string }>>([]);
+  const [currentSentiment, setCurrentSentiment] = useState<{ sentiment: string; score: number } | null>(null);
+  const sentimentTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Auto-translate transcript when language changes or transcript updates
   useEffect(() => {
@@ -105,20 +111,66 @@ export default function RecordingPanel() {
     }, 1000); // Wait 1 second after last transcript update
   }, [finalTranscript, targetLanguage]);
 
+  // Sentiment Analysis - analyze transcript periodically
+  useEffect(() => {
+    if (status !== 'RECORDING' || !finalTranscript.trim()) {
+      return;
+    }
+
+    // Debounce sentiment analysis
+    if (sentimentTimerRef.current) {
+      clearTimeout(sentimentTimerRef.current);
+    }
+
+    sentimentTimerRef.current = setTimeout(async () => {
+      try {
+        // Analyze last 200 characters for real-time sentiment
+        const recentText = finalTranscript.slice(-200);
+        const response = await fetch('/api/sentiment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: recentText })
+        });
+        const data = await response.json();
+        
+        if (response.ok && data.sentiment) {
+          setCurrentSentiment({ sentiment: data.sentiment, score: data.score || 0.5 });
+          setSentimentHistory(prev => [...prev, {
+            timestamp: Date.now(),
+            sentiment: data.sentiment,
+            score: data.score || 0.5,
+            text: recentText.slice(0, 50) + '...'
+          }]);
+        }
+      } catch (error) {
+        console.error('Sentiment analysis error:', error);
+      }
+    }, 3000); // Analyze every 3 seconds
+  }, [finalTranscript, status]);
+
   // Return a combined transcript while avoiding simple duplication
   function getCombinedTranscript() {
     const base = (finalTranscript || '').trim();
     const inter = (interimTranscript || '').trim();
     if (!base) return inter || '';
     if (!inter) return base;
+    
+    // If interim is already in the final transcript, just return final
+    if (base.includes(inter)) return base;
     if (base.endsWith(inter)) return base;
+    
     // find overlap between end of base and start of inter
-    const maxOverlap = Math.min(base.length, inter.length);
+    const maxOverlap = Math.min(base.length, inter.length, 100); // Limit overlap search
     let overlap = 0;
-    for (let i = maxOverlap; i > 0; i--) {
+    for (let i = maxOverlap; i > 10; i--) {
       if (base.slice(-i) === inter.slice(0, i)) { overlap = i; break; }
     }
-    return base + (overlap ? '' : '\n') + inter.slice(overlap);
+    
+    // Only append if there's meaningful new content
+    const newContent = inter.slice(overlap).trim();
+    if (!newContent) return base;
+    
+    return base + (base.endsWith('.') || base.endsWith('!') || base.endsWith('?') ? ' ' : '. ') + newContent;
   }
 
   // Append a server-provided final chunk while avoiding duplicates/overlap
@@ -1172,6 +1224,34 @@ export default function RecordingPanel() {
                 <WarningIcon size={16} color="#c92a2a" /> {saveError}
               </div>
             )}
+            
+            {/* Sentiment Indicator */}
+            {status === 'RECORDING' && currentSentiment && (
+              <div style={{ 
+                padding: '8px 16px', 
+                background: currentSentiment.sentiment === 'positive' ? 'rgba(34,197,94,0.1)' :
+                           currentSentiment.sentiment === 'negative' ? 'rgba(239,68,68,0.1)' :
+                           'rgba(156,163,175,0.1)',
+                borderRadius: 8,
+                fontWeight: 700,
+                fontSize: 14,
+                color: currentSentiment.sentiment === 'positive' ? '#16a34a' :
+                       currentSentiment.sentiment === 'negative' ? '#dc2626' :
+                       '#6b7280',
+                display: 'inline-flex',
+                gap: 8,
+                alignItems: 'center',
+                border: `2px solid ${currentSentiment.sentiment === 'positive' ? '#22c55e' :
+                                     currentSentiment.sentiment === 'negative' ? '#ef4444' :
+                                     '#9ca3af'}`
+              }}>
+                <span style={{ fontSize: 16 }}>
+                  {currentSentiment.sentiment === 'positive' ? '😊' : 
+                   currentSentiment.sentiment === 'negative' ? '😞' : '😐'}
+                </span>
+                <span style={{ textTransform: 'capitalize' }}>{currentSentiment.sentiment}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1409,7 +1489,7 @@ export default function RecordingPanel() {
                 fontFamily: 'Rubik, sans-serif',
                 marginBottom: targetLanguage !== 'none' ? 12 : 0
               }}>
-                {getCombinedTranscript()}
+                {getCombinedTranscript().replace(/Speaker [A-Z]:\s*/g, '')}
               </div>
               
               {/* Translated Transcript */}
@@ -1555,6 +1635,8 @@ export default function RecordingPanel() {
                   setBookmarks([]);
                   setIsSummaryOpen(false);
                   setIsActionItemsOpen(false);
+                  setSentimentHistory([]);
+                  setCurrentSentiment(null);
                   sessionIdRef.current = null;
                   sequenceRef.current = 0;
                   dispatch({ type: 'IDLE' });
@@ -1577,6 +1659,9 @@ export default function RecordingPanel() {
           </div>
         )}
       </div>
+
+      {/* Sentiment Analysis Panel */}
+      <SentimentPanel sentimentHistory={sentimentHistory} currentSentiment={currentSentiment} />
 
       {/* Bookmarks Panel */}
       {bookmarks.length > 0 && (
