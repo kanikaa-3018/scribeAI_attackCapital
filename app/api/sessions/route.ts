@@ -40,6 +40,17 @@ export async function POST(req: Request) {
 
         const ownerEmailSafe = ownerEmail || 'unknown@local';
 
+        // Find user by email to get id
+        let userId: string | null = null;
+        const user = await prisma.user.findUnique({ where: { email: ownerEmailSafe } });
+        if (user) {
+          userId = user.id;
+        } else {
+          // Create user if not exists
+          const newUser = await prisma.user.create({ data: { email: ownerEmailSafe, name: 'Unknown' } });
+          userId = newUser.id;
+        }
+
         // Check if session already exists with this clientSessionId
         // If it exists, UPDATE it with the new data (summary, transcript, etc.)
         if (clientSessionId) {
@@ -58,7 +69,8 @@ export async function POST(req: Request) {
                 transcript,
                 summary,
                 endedAt: new Date(endedAt),
-                status: 'COMPLETED'
+                status: 'COMPLETED',
+                ownerId: userId
               }
             });
             
@@ -104,12 +116,7 @@ export async function POST(req: Request) {
             transcript,
             summary,
             clientSessionId: clientSessionId || null,
-            owner: {
-              connectOrCreate: {
-                where: { email: ownerEmailSafe },
-                create: { email: ownerEmailSafe, name: 'Unknown' }
-              }
-            }
+            ownerId: userId
           }
         });
         

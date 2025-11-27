@@ -1,0 +1,23 @@
+[
+  {
+    "id": "u_1764227651663",
+    "name": "kanika singhal",
+    "email": "k@gmail.com",
+    "passwordHash": "$2a$10$vGRvh./mjTJJdXKs/STN9e.AJfcVGvYnZfPii67nNjNBo4TuzJaPe",
+    "createdAt": "2025-11-27T07:14:11.814Z"
+  },
+  {
+    "id": "u_1764227903951",
+    "name": "purple horse",
+    "email": "ph@gmail.com",
+    "passwordHash": "$2a$10$Dphs/1ruA9PpNA92KidvC.gKmwgwlsFR3aB/PcEeZOBc82YzRJnm6",
+    "createdAt": "2025-11-27T07:18:24.098Z"
+  },
+  {
+    "id": "u_1764229694152",
+    "name": "new",
+    "email": "new@gmail.com",
+    "passwordHash": "$2a$10$4vOrTa6Dy5/Ux0m1NTKws.qjhHchpNRuWL0t0vXgI/hankVu65ot6",
+    "createdAt": "2025-11-27T07:48:14.276Z"
+  }
+]

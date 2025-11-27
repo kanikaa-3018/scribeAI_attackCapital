@@ -84,7 +84,7 @@ app.post('/auth/signup', (req, res) => {
   const user = { id, name: name || '', email, passwordHash: hash, createdAt: new Date().toISOString() };
   users.push(user);
   writeUsers(users);
-  const token = createToken({ userId: id });
+  const token = createToken({ userId: id, email });
   return res.json({ token });
 });
 
@@ -96,7 +96,7 @@ app.post('/auth/login', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
   const ok = bcrypt.compareSync(password, user.passwordHash);
   if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
-  const token = createToken({ userId: user.id });
+  const token = createToken({ userId: user.id, email: user.email });
   return res.json({ token });
 });
 
