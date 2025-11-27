@@ -31,9 +31,6 @@ export async function POST(req: Request) {
     const usePrisma = Boolean(process.env.DATABASE_URL);
     if (usePrisma) {
       try {
-        // dynamic import so build doesn't fail when prisma client isn't installed
-        // or when DATABASE_URL is not configured in development.
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { PrismaClient } = await import('@prisma/client');
         const prisma = new PrismaClient();
         const { title = 'Untitled session', transcript = '', summary = null, startedAt = new Date().toISOString(), endedAt = new Date().toISOString(), ownerEmail, clientSessionId, keywords, downloadUrl, actionItems } = body;
@@ -51,8 +48,7 @@ export async function POST(req: Request) {
           userId = newUser.id;
         }
 
-        // Check if session already exists with this clientSessionId
-        // If it exists, UPDATE it with the new data (summary, transcript, etc.)
+
         if (clientSessionId) {
           const existing = await prisma.session.findFirst({
             where: { clientSessionId: String(clientSessionId) }
@@ -175,7 +171,7 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   try {
-    // Support pagination via ?page=1&pageSize=10
+
     const url = new URL(req.url);
     const page = Math.max(1, Number(url.searchParams.get('page') || '1'));
     const pageSize = Math.max(1, Math.min(100, Number(url.searchParams.get('pageSize') || '10')));
@@ -189,7 +185,6 @@ export async function GET(req: Request) {
         const total = await prisma.session.count();
         const items = await prisma.session.findMany({ orderBy: { startedAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize });
         await prisma.$disconnect();
-        // Try to augment prisma results with any metadata stored under server/recordings
         try {
           const recordingsRoot = path.join(process.cwd(), 'recordings');
           const metaByTitle: Record<string, any> = {};

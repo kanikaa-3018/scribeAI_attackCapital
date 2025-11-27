@@ -32,8 +32,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     
     // Look for the recording directory
     const recordingsRoot = path.join(process.cwd(), 'recordings');
-    
-    // Try to find a directory matching this session ID
+
     let sessionDir: string | null = null;
     
     if (fs.existsSync(recordingsRoot)) {
@@ -41,7 +40,6 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         .filter(d => d.isDirectory())
         .map(d => d.name);
       
-      // Try exact match with clientSessionId first
       if (dirs.includes(clientSessionId)) {
         sessionDir = path.join(recordingsRoot, clientSessionId);
       } else if (dirs.includes(`session-${clientSessionId}`)) {
@@ -89,7 +87,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       return NextResponse.json({ error: 'No audio chunks found', sessionDir }, { status: 404 });
     }
     
-    console.log(`Serving ${files.length} audio chunks for session ${id} from ${sessionDir}`);
+    // console.log(`Serving ${files.length} audio chunks for session ${id} from ${sessionDir}`);
     
     // For single chunk (typical microphone recording), serve it directly
     if (files.length === 1) {
@@ -108,8 +106,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     }
     
     // For multiple chunks, concatenate them
-    // Note: This works for webm files created by the same MediaRecorder session
-    console.log(`Concatenating ${files.length} chunks...`);
+    // console.log(`Concatenating ${files.length} chunks...`);
     const buffers: Buffer[] = [];
     let totalSize = 0;
     
@@ -118,11 +115,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       const buffer = fs.readFileSync(filePath);
       buffers.push(buffer);
       totalSize += buffer.length;
-      console.log(`  Chunk ${file}: ${(buffer.length / 1024).toFixed(2)}KB`);
+      // console.log(`  Chunk ${file}: ${(buffer.length / 1024).toFixed(2)}KB`);
     }
     
     const concatenated = Buffer.concat(buffers);
-    console.log(`Total concatenated size: ${(totalSize / 1024).toFixed(2)}KB`);
+    // console.log(`Total concatenated size: ${(totalSize / 1024).toFixed(2)}KB`);
     
     return new NextResponse(concatenated, {
       status: 200,

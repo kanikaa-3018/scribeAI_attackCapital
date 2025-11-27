@@ -35,8 +35,8 @@ module.exports.transcribeAudioChunks = async function transcribeAudioChunks(chun
   const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY || '';
   
   if (!ASSEMBLYAI_API_KEY) {
-    console.log('No AssemblyAI API key found.');
-    console.log('Get free AssemblyAI key (100 hours/month) at https://www.assemblyai.com/dashboard/signup');
+    // console.log('No AssemblyAI API key found.');
+    // console.log('Get free AssemblyAI key (100 hours/month) at https://www.assemblyai.com/dashboard/signup');
     return '';
   }
 
@@ -48,7 +48,7 @@ async function transcribeWithAssemblyAI(chunkPaths, apiKey, socketEmitter = null
     console.log(`Starting transcription for ${chunkPaths.length} audio chunks using AssemblyAI with speaker diarization...`);
     
     let fullTranscript = '';
-    let allUtterances = []; // Store speaker-labeled utterances
+    let allUtterances = []; 
     
     for (let i = 0; i < chunkPaths.length; i++) {
       const chunkPath = chunkPaths[i];
@@ -301,8 +301,6 @@ ${fullTranscript}`;
       temperature: 0.1
     };
 
-    // If the API key looks like a Google API key or provider is explicitly set to google,
-    // call Google's Generative Language API (AI Studio / Vertex) using the API key in the query string if possible.
     const isGoogle = (process.env.GEMINI_PROVIDER === 'google') || String(API_KEY).startsWith('AIza');
     if (isGoogle) {
 
@@ -312,7 +310,7 @@ ${fullTranscript}`;
         const GoogleGenAI = genai.GoogleGenAI || (genai.default && genai.default.GoogleGenAI);
         const ai = new GoogleGenAI({ apiKey: API_KEY });
         
-        // Use the correct API format for Google GenAI SDK
+       
         const result = await ai.models.generateContent({
           model,
           contents: [{
@@ -321,10 +319,10 @@ ${fullTranscript}`;
           }]
         });
 
-        // Extract text from the response
+      
         let out = '';
         try {
-          // The response structure is: result.response.text()
+          
           if (result && result.response) {
             out = await result.response.text();
           } else if (result && typeof result.text === 'function') {
@@ -379,7 +377,7 @@ ${fullTranscript}`;
       }
     }
 
-    // Otherwise fall back to OpenAI-compatible endpoint
+   
     const SUMMARIZER_URL = getSummarizerUrl();
     console.log('generateSummary: using summarizer url=', SUMMARIZER_URL, 'API key present=', !!API_KEY);
     const res = await fetch(SUMMARIZER_URL, {

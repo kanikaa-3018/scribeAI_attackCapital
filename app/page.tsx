@@ -23,7 +23,7 @@ export default function HomePage() {
             transform: 'perspective(1000px) rotateX(2deg)',
             transition: 'transform 0.3s ease'
           }}>
-            {/* Decorative corner accents */}
+           
             <div style={{ 
               position: 'absolute', 
               top: 0, 
@@ -45,7 +45,7 @@ export default function HomePage() {
               opacity: 0.3
             }} />
             
-            {/* Floating Icons */}
+            
             <div style={{ position: 'absolute', top: 30, right: 50, animation: 'bounce 3s ease-in-out infinite', opacity: 0.6, color: 'var(--nb-accent)' }}><MicrophoneIcon size={48} /></div>
             <div style={{ position: 'absolute', bottom: 40, left: 60, animation: 'bounce 3s ease-in-out infinite 1s', opacity: 0.6, color: 'var(--nb-accent)' }}><SparkleIcon size={42} /></div>
             

@@ -89,7 +89,7 @@ export default function SessionHistory() {
         if (page === 1) {
           const exists = prev.find((x) => String(x.id) === String(s.id));
           if (exists) return prev;
-          // keep page size limit
+          
           const next = [s, ...prev];
           return next.slice(0, pageSize);
         }
@@ -140,17 +140,17 @@ export default function SessionHistory() {
 
     setIsSearching(true);
 
-    // Search across all sessions, not just current page
+  
     const searchAllSessions = async () => {
       try {
-        // Fetch all sessions if not already loaded
+        
         if (allSessions.length === 0) {
           const res = await fetch(`/api/sessions?page=1&pageSize=1000`);
           const data = await res.json();
           const items = data && data.sessions ? data.sessions : [];
           setAllSessions(items);
           
-          // Now filter
+          
           const query = searchQuery.toLowerCase();
           const filtered = items.filter((s: SessionItem) => {
             if (s.title && s.title.toLowerCase().includes(query)) return true;
@@ -160,7 +160,7 @@ export default function SessionHistory() {
           });
           setFilteredSessions(filtered);
         } else {
-          // Filter from cached all sessions
+          
           const query = searchQuery.toLowerCase();
           const filtered = allSessions.filter((s: SessionItem) => {
             if (s.title && s.title.toLowerCase().includes(query)) return true;
